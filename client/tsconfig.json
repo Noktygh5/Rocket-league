@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": { "rootDir": "..", "outDir": "dist-types", "lib": ["ES2022", "DOM"], "types": ["vite/client"], "noEmit": true, "composite": false },
+  "include": ["src"]
+}

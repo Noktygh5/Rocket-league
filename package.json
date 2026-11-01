@@ -1,0 +1,18 @@
+{
+  "name": "turboball",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["shared", "client", "server"],
+  "scripts": {
+    "dev": "npm run dev --workspace client",
+    "build": "npm run build --workspace shared && npm run build --workspace client && npm run build --workspace server",
+    "typecheck": "tsc -b shared client server",
+    "test": "npm run test --workspace shared"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4",
+    "tsx": "^4.19.2",
+    "@types/node": "^22.9.0"
+  }
+}
