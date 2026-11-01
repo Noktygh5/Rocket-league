@@ -13,3 +13,5 @@ export * from './sim';
 export * from './bot/bot';
 export * from './bot/predict';
 export * from './bot/headless';
+export * from './net/protocol';
+export * from './net/prediction';
