@@ -138,3 +138,8 @@ Ball tweak: base is now near-black; hexagons are ~2.7x larger (about 10 panels a
 - Angular SUV shell with a raked windscreen, black-framed side windows, hood bulge, gold roof skin / hood centre / sills, body-coloured fender tops, thick black triple-lip fender flares, side vent behind the front wheel, wide black bumper with splitter, black grille with metal slats, round glowing white-blue headlights in angular housings with chrome bezels and a light strip, magenta tail-light bar, tall wing with end plates and twin exhausts.
 - **Hexagon livery**: a tri-planar procedural shader (object-space, so it needs no UVs) draws hexagonal plates with per-plate shade variation and dark edge lines over the clear-coated paint. Blue team = teal paint, orange team = red-orange paint.
 - **Wheels** are larger and chunkier: black tyre, gold rim with a greek-key band and a golden starburst face on a dark disc, plus brake discs. Physics hitbox and wheel positions are unchanged.
+
+## Round 10: less blocky, longer car, and no more leaning while driving
+
+- **Longer, smoother car:** the body is drawn 20% longer than the physics hitbox (real overhangs; the hitbox is unchanged) using curved bezier silhouettes with a bevelled, creased-normal shell (smooth shading instead of flat boxes): sloped hood, rounded nose and tail, fastback hatch, raked windscreen. Wheels sit further apart (wheelbase 104 vs 85 before).
+- **Leaning fix:** random-input stress testing showed cars could keep driving on three wheels with a lean. Ground driving now actively levels roll against the surface (`CAR.drive.rollLevel`, `rollDamping`). The longest "driving tilted > 6 degrees" time in the stress test dropped from about 7 s to 2.5 s (what remains is legitimate wall/ramp riding).

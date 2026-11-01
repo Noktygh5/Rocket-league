@@ -52,6 +52,9 @@ export const CAR = {
     lateralMaxDecel: 12000,
     /** Speed lost while cornering: decel = factor * lateral acceleration. Tuned so full-lock turning settles near 1234 uu/s. */
     turnDrag: 0.095,
+    /** Roll levelling while driving on a surface (rad/s^2 per unit of sideways tilt) and extra roll damping (1/s). Keeps the car from sitting tilted on three wheels. */
+    rollLevel: 40,
+    rollDamping: 7,
     powerslideGripFactor: 0.1,
     /** Powerslide input ramps up / down at these rates (1/s). */
     powerslideRise: 5,

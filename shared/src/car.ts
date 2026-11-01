@@ -457,6 +457,16 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
     const k = Math.min(1, D.steerResponse * dt) * (wTarget - wn);
     c.angVel.x += n.x * k; c.angVel.y += n.y * k; c.angVel.z += n.z * k;
 
+    // roll levelling: a car resting on a surface settles square to it instead of leaning on three wheels
+    if (D.rollLevel > 0) {
+      const tilt = leftV.x * n.x + leftV.y * n.y + leftV.z * n.z; // sin(roll relative to the surface)
+      const lvl = -tilt * D.rollLevel * dt;
+      c.angVel.x += fF.x * lvl; c.angVel.y += fF.y * lvl; c.angVel.z += fF.z * lvl;
+      const roll = c.angVel.x * fF.x + c.angVel.y * fF.y + c.angVel.z * fF.z;
+      const damp = roll * Math.min(1, D.rollDamping * dt);
+      c.angVel.x -= fF.x * damp; c.angVel.y -= fF.y * damp; c.angVel.z -= fF.z * damp;
+    }
+
     // sticky force holds the car to whatever it is driving on
     const t = clamp(1 - n.z, 0, 1);
     const scale = D.stickyBase + (D.stickyMax - D.stickyBase) * t;
