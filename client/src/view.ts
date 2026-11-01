@@ -89,6 +89,8 @@ export class GameView {
   private tags: HTMLElement[] = [];
   private tagV = new THREE.Vector3();
   private ballArrow: HTMLElement;
+  /** True once the goal replay has played to its end (the sim can go straight to kickoff). */
+  replayEnded = false;
   private resizeHandler = (): void => { this.world.resize(); this.camera.aspect = this.world.aspect; };
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement, readonly opts: ViewOptions) {
@@ -211,13 +213,13 @@ export class GameView {
     }
 
     if (s.phase !== this.lastPhase) {
-      if (s.phase === 2) { this.replaySkipped = false; this.replayStarted = false; }
+      if (s.phase === 2) { this.replaySkipped = false; this.replayStarted = false; this.replayEnded = false; }
       this.lastPhase = s.phase;
     }
     this.handleEvents(s);
 
     // goal slow motion (offline only; online clients have no control over the clock)
-    this.timeScale = s.phase === 2 && s.phaseElapsed < 1.6 ? 0.3 : 1;
+    this.timeScale = s.phase === 2 && s.phaseElapsed < 2.4 ? 0.25 + 0.75 * Math.max(0, (s.phaseElapsed - 1.6) / 0.8) : 1;
 
     const inGoal = s.phase === 2;
     const t0 = MATCH.goalCelebration;
@@ -226,7 +228,7 @@ export class GameView {
     if (inGoal && this.opts.replay && !this.replaySkipped && s.phaseElapsed >= t0 && this.replay.count > 30) {
       const len = Math.min(MATCH.replaySeconds, this.replay.count / REPLAY_HZ);
       replayT = s.phaseElapsed - t0;
-      if (replayT < len) playing = true; else this.replaySkipped = true;
+      if (replayT < len) playing = true; else { this.replaySkipped = true; this.replayEnded = true; }
     }
     if (!inGoal) this.replay.push(s, dt);
     this.replayStarted = playing || (this.replayStarted && !this.replaySkipped);

@@ -104,6 +104,19 @@ describe('match flow', () => {
     expect(s.pads.every((p) => p.active)).toBe(true);
   });
 
+  it('a goal blasts the cars away from the goal that was scored in', () => {
+    const s = sim1v1();
+    kickoffDone(s);
+    s.cars[0].pos.x = 0; s.cars[0].pos.y = 3500; s.cars[0].vel.x = 0; s.cars[0].vel.y = 0;
+    s.ball.pos.x = 0; s.ball.pos.y = 4800; s.ball.pos.z = 200;
+    s.ball.vel.y = 3500; s.ball.vel.x = 0; s.ball.vel.z = 0;
+    runSeconds(s, 2, () => s.phase === Phase.Goal);
+    expect(s.phase).toBe(Phase.Goal);
+    runSeconds(s, 0.5);
+    expect(s.cars[0].vel.y).toBeLessThan(-400); // thrown back toward midfield
+    expect(s.cars[0].pos.z).toBeGreaterThan(100); // and into the air
+  });
+
   it('orange scores in the blue goal', () => {
     const s = sim1v1();
     kickoffDone(s);

@@ -227,7 +227,7 @@ export function buildArena(low: boolean): ArenaView {
       const a = i * nProf + j, b = (i + 1) * nProf + j, c = (i + 1) * nProf + j + 1, d = i * nProf + j + 1;
       const mx = (pos[a * 3] + pos[c * 3]) / 2, mz = (pos[a * 3 + 1] + pos[c * 3 + 1]) / 2;
       const my = -(pos[a * 3 + 2] + pos[c * 3 + 2]) / 2;
-      if (Math.abs(my) > L - 60 && Math.abs(mx) < GW + 0.5 && mz < GH + 0.5) continue;
+      if (Math.abs(my) > L - R - 2 && Math.abs(mx) < GW + 0.5 && mz < GH + 0.5) continue; // goal mouth: no wall and no floor ramp, the floor runs flat into the goal
       (j < jSplit ? idxLow : idxFence).push(a, b, c, a, c, d);
     }
   }
@@ -317,7 +317,7 @@ export function buildArena(low: boolean): ArenaView {
       const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat); m.position.set(px, py, pz); m.rotation.set(rx, ry, 0); return m;
     };
     // tunnel interior
-    g.add(plane(2 * GW, depth, metal(3, 2), 0, 0.5, -s * mid, -Math.PI / 2));
+    g.add(plane(2 * GW, depth + R + 2, metal(3, 2), 0, 0.5, -s * (mid - (R + 2) / 2), -Math.PI / 2));
     g.add(plane(2 * GW, depth, metal(3, 2, 0xc2c9d4), 0, GH, -s * mid, -Math.PI / 2));
     g.add(plane(depth, GH, metal(2, 1.2), GW, GH / 2, -s * mid, 0, Math.PI / 2));
     g.add(plane(depth, GH, metal(2, 1.2), -GW, GH / 2, -s * mid, 0, Math.PI / 2));

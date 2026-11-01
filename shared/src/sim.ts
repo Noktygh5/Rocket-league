@@ -1,7 +1,7 @@
 import * as arena from './arena';
 import { BallState, copyBall, resetBall, stepBall } from './ball';
 import { CarCarResult, collideCarBall, collideCarCar } from './collide';
-import { BALL, CAR, MATCH, PADS, PHYSICS, SPAWN, mirrorPads } from './constants';
+import { ARENA, BALL, CAR, MATCH, PADS, PHYSICS, SPAWN, mirrorPads } from './constants';
 import { CarInput, CarState, copyCar, placeCar, stepCar } from './car';
 import { Prng } from './prng';
 
@@ -319,8 +319,24 @@ export class GameSim {
     if (scorer >= 0) { this.stats[scorer].goals++; this.updateScore(scorer); }
     this.lastGoalPlayer = scorer;
     this.phase = Phase.Goal;
-    this.phaseTimer = this.config.skipReplay ? 1.5 : MATCH.goalCelebration + MATCH.replaySeconds + 1;
+    this.phaseTimer = this.config.skipReplay ? 1.5 : MATCH.goalCelebration + MATCH.replaySeconds;
+    this.blastCars(team);
     this.emit('goal', team, scorer);
+  }
+
+  /** The goal explodes: every car is thrown away from the goal that was scored in, tumbling. */
+  private blastCars(team: number): void {
+    const gy = team === 0 ? ARENA.halfLength : -ARENA.halfLength;
+    for (const c of this.cars) {
+      if (c.demolished) continue;
+      let dx = c.pos.x, dy = c.pos.y - gy;
+      const d = Math.sqrt(dx * dx + dy * dy);
+      if (d < 1) { dx = 0; dy = -Math.sign(gy); } else { dx /= d; dy /= d; }
+      const k = MATCH.goalBlast * Math.max(0.35, 1 - d / 5500);
+      c.vel.x += dx * k; c.vel.y += dy * k; c.vel.z += MATCH.goalBlastLift;
+      c.angVel.x += (this.rng.next() - 0.5) * 8; c.angVel.y += (this.rng.next() - 0.5) * 8; c.angVel.z += (this.rng.next() - 0.5) * 6;
+      c.onGround = false;
+    }
   }
 
   private finish(): void {

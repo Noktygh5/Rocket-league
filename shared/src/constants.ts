@@ -250,6 +250,9 @@ export const MATCH = {
   length: 300,
   goalCelebration: 3,
   replaySeconds: 6,
+  /** Goal explosion: speed thrown away from the goal at point-blank, and upward kick (uu/s). */
+  goalBlast: 2300,
+  goalBlastLift: 650,
   overtimeSudden: true,
 };
 

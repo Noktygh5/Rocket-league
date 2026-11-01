@@ -55,7 +55,7 @@ export class OfflineGame {
     if (a === 'ballcam') this.view.toggleBallCam();
     else if (a === 'skip') {
       this.view.skipReplay();
-      if (this.sim.phase === 2) this.sim.phaseTimer = Math.min(this.sim.phaseTimer, 1.0);
+      if (this.sim.phase === 2) this.sim.phaseTimer = Math.min(this.sim.phaseTimer, 0.05);
     } else if (a === 'pause') this.onPauseRequest?.();
   }
 
@@ -112,6 +112,7 @@ export class OfflineGame {
         sim.drainEvents(this.events);
       });
       if (sim.phase === 2) this.goalClock += dt; else this.goalClock = 0;
+      if (sim.phase === 2 && this.view.replayEnded) sim.phaseTimer = Math.min(sim.phaseTimer, 0.05);
     }
     this.buildSnap();
     this.view.scoreboard = this.input.scoreboard;
