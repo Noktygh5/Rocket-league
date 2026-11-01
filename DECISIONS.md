@@ -143,3 +143,8 @@ Ball tweak: base is now near-black; hexagons are ~2.7x larger (about 10 panels a
 
 - **Longer, smoother car:** the body is drawn 20% longer than the physics hitbox (real overhangs; the hitbox is unchanged) using curved bezier silhouettes with a bevelled, creased-normal shell (smooth shading instead of flat boxes): sloped hood, rounded nose and tail, fastback hatch, raked windscreen. Wheels sit further apart (wheelbase 104 vs 85 before).
 - **Leaning fix:** random-input stress testing showed cars could keep driving on three wheels with a lean. Ground driving now actively levels roll against the surface (`CAR.drive.rollLevel`, `rollDamping`). The longest "driving tilted > 6 degrees" time in the stress test dropped from about 7 s to 2.5 s (what remains is legitimate wall/ramp riding).
+
+## Round 11 — goals and boost pads redesigned from reference screenshots
+- Goals: metal panel tunnel (seams/rivets, glowing team-colour base strips), neon rounded-rectangle frame with white core, dark armoured bezel, LED dot-matrix "BLUE GOAL"/"ORANGE GOAL" screen above, neon chevron panels either side. Nets/beacon posts removed.
+- Pads: small = silver tri-lobe plate with glowing centre and flame jets on centre + 3 lobes; large = dark cross platform with 5 flame columns and a floating, spinning golden orb. Both go dark when collected (`ArenaView.animate(dt)` drives flicker/orb).
+- Floor texture: team-coloured lanes per half, dark zones before goals, dark centre hub with cross line. Pad coordinates already matched the supplied map.

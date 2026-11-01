@@ -360,6 +360,7 @@ export class World {
     this.camera.lookAt(c.tx, c.tz, -c.ty);
     if (Math.abs(this.camera.fov - c.fov) > 0.01) { this.camera.fov = c.fov; this.camera.updateProjectionMatrix(); }
 
+    this.arena.animate(dt);
     this.skid.update(dt);
     // the ball's glow must never flood the screen when the camera is close to it
     const hd = Math.hypot(f.ball.x - c.px, f.ball.y - c.py, f.ball.z - c.pz);
