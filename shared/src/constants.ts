@@ -219,14 +219,9 @@ export const PADS = {
   /** Base positions; mirrored on both axes (zero coordinates are not duplicated). */
   largeBase: [
     [3072, 4096],
-    [3584, 0],
   ],
   smallBase: [
     [0, 4240],
-    [1792, 4184],
-    [940, 3308],
-    [0, 2816],
-    [3584, 2484],
     [1788, 2300],
     [2048, 1036],
     [0, 1024],
@@ -285,3 +280,5 @@ export function mirrorPads(base: readonly (readonly number[])[]): { x: number; y
   }
   return out;
 }
+
+export const PAD_COUNT = mirrorPads(PADS.largeBase).length + mirrorPads(PADS.smallBase).length;

@@ -1,5 +1,5 @@
 import { CarInput, CarState } from '../car';
-import { NET, PHYSICS } from '../constants';
+import { NET, PADS, PHYSICS, mirrorPads } from '../constants';
 import { mat3 } from '../math/mat3';
 import { GameSim } from '../sim';
 
@@ -167,7 +167,7 @@ export function decodeSnapshot(buf: ArrayBuffer): SnapData | null {
   const phase = v.getUint8(o++);
   const fl = v.getUint8(o++);
   const nc = v.getUint8(o++);
-  const np = 34;
+  const np = mirrorPads(PADS.largeBase).length + mirrorPads(PADS.smallBase).length;
   if (buf.byteLength < snapshotSize(nc, np)) return null;
   const clock = v.getFloat32(o, true); o += 4;
   const phaseTimer = v.getFloat32(o, true); o += 4;

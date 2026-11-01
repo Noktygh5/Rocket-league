@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { MATCH, Vec3, arena } from '@turboball/shared';
+import { MATCH, PAD_COUNT, Vec3, arena } from '@turboball/shared';
 import { AudioEngine } from './audio';
 import { CamPose, CamTarget, ChaseCamera } from './camera';
 import { Hud } from './hud';
@@ -103,7 +103,7 @@ export class GameView {
     this.frame = {
       ball: { x: 0, y: 0, z: 0, q: { x: 0, y: 0, z: 0, w: 1 } },
       cars: opts.teams.map((t) => ({ x: 0, y: 0, z: 0, q: { x: 0, y: 0, z: 0, w: 1 }, team: t, boosting: false, supersonic: false, boost: 0, fwdSpeed: 0, steer: 0, demolished: false, handbrake: false, slip: 0, onGround: true })),
-      padActive: new Array(34).fill(true), padTimer01: new Array(34).fill(0),
+      padActive: new Array(PAD_COUNT).fill(true), padTimer01: new Array(PAD_COUNT).fill(0),
       cam: { px: 0, py: 0, pz: 0, tx: 0, ty: 0, tz: 0, ux: 0, uy: 0, uz: 1, fov: 100 }, focus: opts.localIndex,
     };
     // name tags over the other cars, like the reference HUD

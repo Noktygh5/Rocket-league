@@ -376,15 +376,15 @@ export function buildArena(low: boolean): ArenaView {
   const midMetal = new THREE.MeshStandardMaterial({ color: 0x70757e, metalness: 0.7, roughness: 0.4, envMapIntensity: 1.2 });
   const polarShape = (r: (a: number) => number): THREE.Shape => { const sh = new THREE.Shape(); const n = 120; for (let i = 0; i <= n; i++) { const a = (i / n) * Math.PI * 2; const rr = r(a); if (i === 0) sh.moveTo(Math.cos(a) * rr, Math.sin(a) * rr); else sh.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); } return sh; };
   const slab = (sh: THREE.Shape, depth: number): THREE.BufferGeometry => { const gg = new THREE.ExtrudeGeometry(sh, { depth, bevelEnabled: true, bevelSize: 3, bevelThickness: 2, bevelSegments: 1, curveSegments: 6 }); gg.rotateX(-Math.PI / 2); return gg; };
-  const lobeGeo = slab(polarShape((a) => 150 * (0.74 + 0.26 * Math.cos(3 * a))), 7);
-  const crossGeo = slab(polarShape((a) => 330 * (0.5 + 0.5 * Math.pow(Math.abs(Math.cos(2 * a)), 1.6))), 12);
+  const lobeGeo = slab(polarShape((a) => 78 * (0.74 + 0.26 * Math.cos(3 * a))), 4);
+  const crossGeo = slab(polarShape((a) => 170 * (0.5 + 0.5 * Math.pow(Math.abs(Math.cos(2 * a)), 1.6))), 7);
   const nS = smallSpots.length, nL = largeSpots.length;
   const instanced = (geo: THREE.BufferGeometry, mat: THREE.Material, n: number): THREE.InstancedMesh => { const m = new THREE.InstancedMesh(geo, mat, n); m.frustumCulled = false; group.add(m); return m; };
   const baseS = instanced(lobeGeo, silver, nS), baseL = instanced(crossGeo, darkMetal, nL);
-  const ringS = instanced(new THREE.CylinderGeometry(84, 88, 8, 36), midMetal, nS), ringL = instanced(new THREE.CylinderGeometry(150, 156, 12, 40), midMetal, nL);
-  const pedS = instanced(new THREE.CylinderGeometry(62, 66, 22, 32), darkMetal, nS), pedL = instanced(new THREE.CylinderGeometry(112, 118, 36, 36), darkMetal, nL);
+  const ringS = instanced(new THREE.CylinderGeometry(44, 46, 5, 36), midMetal, nS), ringL = instanced(new THREE.CylinderGeometry(78, 82, 7, 40), midMetal, nL);
+  const pedS = instanced(new THREE.CylinderGeometry(32, 34, 12, 32), darkMetal, nS), pedL = instanced(new THREE.CylinderGeometry(58, 62, 20, 36), darkMetal, nL);
   const coreMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
-  const coreS = instanced(new THREE.CylinderGeometry(52, 52, 4, 32), coreMat, nS), coreL = instanced(new THREE.CylinderGeometry(94, 94, 4, 36), coreMat, nL);
+  const coreS = instanced(new THREE.CylinderGeometry(27, 27, 3, 32), coreMat, nS), coreL = instanced(new THREE.CylinderGeometry(49, 49, 3, 36), coreMat, nL);
   const glowTex = canvasTex(64, 64, (c) => {
     const gr = c.createRadialGradient(32, 32, 0, 32, 32, 32);
     gr.addColorStop(0, 'rgba(255,190,70,0.85)'); gr.addColorStop(0.5, 'rgba(255,150,40,0.3)'); gr.addColorStop(1, 'rgba(255,120,20,0)');
@@ -425,13 +425,13 @@ export function buildArena(low: boolean): ArenaView {
   const zero = new THREE.Matrix4().makeScale(0, 0, 0);
   const place = (mesh: THREE.InstancedMesh, i: number, x: number, y: number, h: number, scale = 1): void => { m4.compose(v3.set(x, h, -y), q0, sc.set(scale, scale, scale)); mesh.setMatrixAt(i, m4); };
   largeSpots.forEach((p, i) => {
-    place(baseL, i, p.x, p.y, 0); place(ringL, i, p.x, p.y, 17); place(pedL, i, p.x, p.y, 36); place(coreL, i, p.x, p.y, 55); place(glowL, i, p.x, p.y, 3, 760);
+    place(baseL, i, p.x, p.y, 0); place(ringL, i, p.x, p.y, 9); place(pedL, i, p.x, p.y, 19); place(coreL, i, p.x, p.y, 30); place(glowL, i, p.x, p.y, 3, 380);
     recs.push({ large: true, i, x: p.x, y: p.y, active: true }); padIndex.push({ large: true, i });
-    const orb = new THREE.Mesh(new THREE.SphereGeometry(92, 32, 24), orbMat); orb.position.set(p.x, 330, -p.y); group.add(orb); orbs.push(orb);
-    const halo = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), haloMat); halo.position.copy(orb.position); group.add(halo); orbHalos.push(halo);
+    const orb = new THREE.Mesh(new THREE.SphereGeometry(30, 28, 20), orbMat); orb.position.set(p.x, 120, -p.y); group.add(orb); orbs.push(orb);
+    const halo = new THREE.Mesh(new THREE.PlaneGeometry(190, 190), haloMat); halo.position.copy(orb.position); group.add(halo); orbHalos.push(halo);
   });
   smallSpots.forEach((p, i) => {
-    place(baseS, i, p.x, p.y, 0); place(ringS, i, p.x, p.y, 11); place(pedS, i, p.x, p.y, 22); place(coreS, i, p.x, p.y, 34); place(glowS, i, p.x, p.y, 3, 330);
+    place(baseS, i, p.x, p.y, 0); place(ringS, i, p.x, p.y, 6); place(pedS, i, p.x, p.y, 12); place(coreS, i, p.x, p.y, 19); place(glowS, i, p.x, p.y, 3, 170);
     recs.push({ large: false, i, x: p.x, y: p.y, active: true }); padIndex.push({ large: false, i });
   });
   for (const m of [baseS, baseL, ringS, ringL, pedS, pedL, glowS, glowL]) m.instanceMatrix.needsUpdate = true;
@@ -444,13 +444,13 @@ export function buildArena(low: boolean): ArenaView {
     if (rec.large) {
       const base = rec.i * 5;
       if (!rec.active) { for (let j = 0; j < 5; j++) jetsL.setMatrixAt(base + j, zero); return; }
-      setJet(jetsL, base, rec.x, rec.y, 57, 190, 520 * f(0));
-      for (let j = 0; j < 4; j++) { const a = (j * Math.PI) / 2; setJet(jetsL, base + 1 + j, rec.x + Math.cos(a) * 235, rec.y + Math.sin(a) * 235, 14, 90, 230 * f(j + 1)); }
+      setJet(jetsL, base, rec.x, rec.y, 31, 60, 140 * f(0));
+      for (let j = 0; j < 4; j++) { const a = (j * Math.PI) / 2; setJet(jetsL, base + 1 + j, rec.x + Math.cos(a) * 120, rec.y + Math.sin(a) * 120, 8, 28, 55 * f(j + 1)); }
     } else {
       const base = rec.i * 4;
       if (!rec.active) { for (let j = 0; j < 4; j++) jetsS.setMatrixAt(base + j, zero); return; }
-      setJet(jetsS, base, rec.x, rec.y, 36, 110, 215 * f(0));
-      for (let j = 0; j < 3; j++) setJet(jetsS, base + 1 + j, rec.x + Math.cos(lobeAngles[j]) * 104, rec.y + Math.sin(lobeAngles[j]) * 104, 10, 56, 105 * f(j + 1));
+      setJet(jetsS, base, rec.x, rec.y, 20, 34, 70 * f(0));
+      for (let j = 0; j < 3; j++) setJet(jetsS, base + 1 + j, rec.x + Math.cos(lobeAngles[j]) * 54, rec.y + Math.sin(lobeAngles[j]) * 54, 6, 18, 32 * f(j + 1));
     }
   };
   const colActive = new THREE.Color(1, 0.8, 0.28), colOff = new THREE.Color(0.08, 0.07, 0.06), tmp = new THREE.Color();
@@ -466,7 +466,7 @@ export function buildArena(low: boolean): ArenaView {
       const core = r.large ? coreL : coreS, glow = r.large ? glowL : glowS;
       core.setColorAt(r.i, active ? colActive : tmp.copy(colOff).lerp(colActive, 0.25 * t01));
       if (core.instanceColor) core.instanceColor.needsUpdate = true;
-      if (active) place(glow, r.i, r.x, r.y, 3, r.large ? 760 : 330); else glow.setMatrixAt(r.i, zero);
+      if (active) place(glow, r.i, r.x, r.y, 3, r.large ? 380 : 170); else glow.setMatrixAt(r.i, zero);
       glow.instanceMatrix.needsUpdate = true;
       if (r.large) { orbs[r.i].visible = active; orbHalos[r.i].visible = active; }
       refreshJets(r);
@@ -476,7 +476,7 @@ export function buildArena(low: boolean): ArenaView {
       time += dt;
       for (const r of recs) if (r.active) refreshJets(r);
       jetsS.instanceMatrix.needsUpdate = true; jetsL.instanceMatrix.needsUpdate = true;
-      orbs.forEach((o, i) => { o.rotation.y += dt * 0.9; o.position.y = 330 + 16 * Math.sin(time * 1.7 + i); orbHalos[i].position.y = o.position.y; });
+      orbs.forEach((o, i) => { o.rotation.y += dt * 0.9; o.position.y = 120 + 8 * Math.sin(time * 1.7 + i); orbHalos[i].position.y = o.position.y; });
     },
   };
 }

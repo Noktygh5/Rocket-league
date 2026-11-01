@@ -97,9 +97,9 @@ describe('curve', () => {
 });
 
 describe('constants', () => {
-  it('pad layout is exactly 6 large and 28 small', () => {
-    expect(mirrorPads(PADS.largeBase)).toHaveLength(6);
-    expect(mirrorPads(PADS.smallBase)).toHaveLength(28);
+  it('pad layout is 4 large and 14 small', () => {
+    expect(mirrorPads(PADS.largeBase)).toHaveLength(4);
+    expect(mirrorPads(PADS.smallBase)).toHaveLength(14);
   });
   it('ball curve x is ascending', () => {
     const t = BALL.carHit.extraImpulseCurve;

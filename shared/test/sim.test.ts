@@ -20,11 +20,11 @@ function kickoffDone(s: GameSim): void {
 }
 
 describe('pads', () => {
-  it('has 34 pads: 6 large, 28 small', () => {
+  it('has 18 pads: 4 large, 14 small', () => {
     const p = makePads();
-    expect(p.length).toBe(34);
-    expect(p.filter((x) => x.large).length).toBe(6);
-    expect(p.filter((x) => !x.large).length).toBe(28);
+    expect(p.length).toBe(18);
+    expect(p.filter((x) => x.large).length).toBe(4);
+    expect(p.filter((x) => !x.large).length).toBe(14);
   });
   it('a car picks up a pad and it respawns on time', () => {
     const s = sim1v1();

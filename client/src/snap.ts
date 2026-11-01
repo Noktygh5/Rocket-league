@@ -1,3 +1,4 @@
+import { PAD_COUNT } from '@turboball/shared';
 import type { PlayerStats, SimEvent } from '@turboball/shared';
 
 /** Everything the presentation layer (camera, world, HUD, audio) needs for one displayed frame. */
@@ -56,8 +57,8 @@ export function makeSnap(nCars: number): RenderSnap {
   return {
     cars: Array.from({ length: nCars }, carSnap),
     ball: { x: 0, y: 0, z: 92, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0 },
-    padActive: new Array(34).fill(true),
-    padTimer: new Array(34).fill(0),
+    padActive: new Array(PAD_COUNT).fill(true),
+    padTimer: new Array(PAD_COUNT).fill(0),
     score: [0, 0],
     clock: 300, overtime: false, phase: 0, countdown: 3, localIndex: 0,
     stats: Array.from({ length: nCars }, () => ({ goals: 0, saves: 0, shots: 0, demos: 0, score: 0 })),
