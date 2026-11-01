@@ -18,6 +18,8 @@ export const CAR = {
   /** Hitbox centre offset from the body origin. */
   hitboxOffset: { x: 13.8757, y: 0, z: 20.755 },
   mass: 180,
+  /** Resting centre-of-mass (hitbox centre) height above the floor. */
+  restHeight: 17.01,
   maxAngularSpeed: 5.5,
   maxSpeed: 2300,
   supersonicOn: 2200,
@@ -40,8 +42,15 @@ export const CAR = {
     /** Front-wheel steer angle (rad) by forward speed (uu/s). */
     steerCurve: [0, 0.5336, 500, 0.3193, 1000, 0.182, 1500, 0.1078, 1750, 0.085, 3000, 0.0345],
     /** Lateral friction scale: normal vs powersliding. */
-    lateralFriction: 1.0,
-    handbrakeLateralFriction: 0.1,
+    /** Lateral velocity decay rate (1/s): gripping vs powersliding. */
+    lateralGripRate: 60,
+    handbrakeGripRate: 0.6,
+    /** How fast yaw rate converges to the steering target (1/s). */
+    steerResponse: 30,
+    /** Seconds after a jump during which wheel contact is ignored. */
+    jumpGroundLockout: 0.06,
+    /** Wheelbase used for steering: curvature = tan(steerAngle) / wheelbase. */
+    wheelbase: 85,
     handbrakeSteerScale: 1.4,
     /** Sticky force relative to gravity: base with 3 wheels, up to max with 4. */
     stickyBase: 0.5,
@@ -103,6 +112,10 @@ export const CAR = {
     /** Car vs arena. */
     restitution: 0.25,
     friction: 0.3,
+    /** Hitbox points may sink this far into a surface before colliding (wheel clearance). */
+    arenaTolerance: 1.6,
+    /** Below this closing speed collisions are perfectly inelastic. */
+    restitutionSpeedThreshold: 120,
     /** Car vs car. */
     carRestitution: 0.35,
   },

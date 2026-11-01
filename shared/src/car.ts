@@ -1,0 +1,509 @@
+import { CAR, PHYSICS } from './constants';
+import * as arena from './arena';
+import { Mat3, mat3 } from './math/mat3';
+import { Quat, quat } from './math/quat';
+import { Vec3, vec3 } from './math/vec3';
+import { clamp, curve } from './math/scalar';
+
+/** One tick of player input. Axes in [-1, 1]. pitch>0 = nose down (W), yaw>0 / steer>0 / roll>0 = right. */
+export class CarInput {
+  throttle = 0;
+  steer = 0;
+  pitch = 0;
+  yaw = 0;
+  roll = 0;
+  jump = false;
+  boost = false;
+  handbrake = false;
+  copy(o: CarInput): this {
+    this.throttle = o.throttle; this.steer = o.steer; this.pitch = o.pitch; this.yaw = o.yaw;
+    this.roll = o.roll; this.jump = o.jump; this.boost = o.boost; this.handbrake = o.handbrake;
+    return this;
+  }
+  clear(): this {
+    this.throttle = 0; this.steer = 0; this.pitch = 0; this.yaw = 0; this.roll = 0;
+    this.jump = false; this.boost = false; this.handbrake = false;
+    return this;
+  }
+}
+
+export class CarState {
+  id = 0;
+  /** 0 = Blue, 1 = Orange */
+  team = 0;
+  /** Position of the hitbox centre = centre of mass. */
+  pos = new Vec3(0, 0, CAR.restHeight);
+  vel = new Vec3();
+  angVel = new Vec3();
+  rot = new Quat();
+  /** Columns: forward, left, up. Refreshed at the start of every step. */
+  basis = new Mat3();
+
+  boost: number = CAR.boost.start;
+  boosting = false;
+  boostHold = 0;
+  prevBoost = false;
+  supersonic = false;
+
+  wheelContacts = 0;
+  onGround = false;
+  surfaceNormal = new Vec3(0, 0, 1);
+
+  jumped = false;
+  jumpTimer = 0;
+  jumpHeld = false;
+  flipUsed = false;
+  airTime = 0;
+  groundLockout = 0;
+  prevJump = false;
+
+  flipActive = false;
+  flipTimer = 0;
+  flipDirX = 0;
+  flipDirY = 0;
+  flipCancel = false;
+  pitchLock = 0;
+
+  demolished = false;
+  respawnTimer = 0;
+
+  /** Sim tick of the last ball touch, -1 if none. */
+  lastTouchTick = -1;
+  /** Wheel contact flags for rendering. */
+  wheelHit = [false, false, false, false];
+}
+
+export function copyCar(o: CarState, a: CarState): void {
+  o.id = a.id; o.team = a.team;
+  vec3.copy(o.pos, a.pos); vec3.copy(o.vel, a.vel); vec3.copy(o.angVel, a.angVel);
+  quat.copy(o.rot, a.rot); mat3.copy(o.basis, a.basis);
+  o.boost = a.boost; o.boosting = a.boosting; o.boostHold = a.boostHold; o.prevBoost = a.prevBoost;
+  o.supersonic = a.supersonic; o.wheelContacts = a.wheelContacts; o.onGround = a.onGround;
+  vec3.copy(o.surfaceNormal, a.surfaceNormal);
+  o.jumped = a.jumped; o.jumpTimer = a.jumpTimer; o.jumpHeld = a.jumpHeld; o.flipUsed = a.flipUsed;
+  o.airTime = a.airTime; o.groundLockout = a.groundLockout; o.prevJump = a.prevJump;
+  o.flipActive = a.flipActive; o.flipTimer = a.flipTimer; o.flipDirX = a.flipDirX; o.flipDirY = a.flipDirY;
+  o.flipCancel = a.flipCancel; o.pitchLock = a.pitchLock;
+  o.demolished = a.demolished; o.respawnTimer = a.respawnTimer; o.lastTouchTick = a.lastTouchTick;
+  for (let i = 0; i < 4; i++) o.wheelHit[i] = a.wheelHit[i];
+}
+
+/** Places a car at rest on the floor facing `yaw` (radians from +X). */
+export function placeCar(c: CarState, x: number, y: number, yaw: number): void {
+  vec3.set(c.pos, x, y, CAR.restHeight);
+  vec3.set(c.vel, 0, 0, 0);
+  vec3.set(c.angVel, 0, 0, 0);
+  quat.fromYaw(c.rot, yaw);
+  mat3.fromQuat(c.basis, c.rot);
+  c.boost = CAR.boost.start; c.boosting = false; c.boostHold = 0; c.prevBoost = false;
+  c.supersonic = false; c.wheelContacts = 4; c.onGround = true;
+  vec3.set(c.surfaceNormal, 0, 0, 1);
+  c.jumped = false; c.jumpTimer = 0; c.jumpHeld = false; c.flipUsed = false; c.airTime = 0;
+  c.groundLockout = 0; c.prevJump = false;
+  c.flipActive = false; c.flipTimer = 0; c.flipCancel = false; c.pitchLock = 0;
+  c.demolished = false; c.respawnTimer = 0;
+}
+
+/** Inertia of the hitbox as a uniform box: [roll(x), pitch(y), yaw(z)]. */
+export function carInertia(out: Vec3): Vec3 {
+  const s = CAR.hitboxSize, k = CAR.mass / 12;
+  out.x = k * (s.y * s.y + s.z * s.z);
+  out.y = k * (s.x * s.x + s.z * s.z);
+  out.z = k * (s.x * s.x + s.y * s.y);
+  return out;
+}
+
+// ---- scratch (module-level, no per-tick allocation) -------------------------------------------
+const I = new Vec3();
+const tmp = new Vec3();
+const tmp2 = new Vec3();
+const rr = new Vec3();
+const nn = new Vec3();
+const fwdV = new Vec3();
+const leftV = new Vec3();
+const upV = new Vec3();
+const fF = new Vec3(); // forward projected on the surface
+const lF = new Vec3(); // left on the surface
+const wN = [new Vec3(), new Vec3(), new Vec3(), new Vec3()];
+const wP = [new Vec3(), new Vec3(), new Vec3(), new Vec3()];
+const wD = [0, 0, 0, 0];
+const wHit = [false, false, false, false];
+
+/** out = I^-1 * v  (world frame, using the car basis). */
+function invInertiaMul(out: Vec3, c: CarState, v: Vec3): Vec3 {
+  const m = c.basis.m;
+  const lx = (m[0] * v.x + m[3] * v.y + m[6] * v.z) / I.x;
+  const ly = (m[1] * v.x + m[4] * v.y + m[7] * v.z) / I.y;
+  const lz = (m[2] * v.x + m[5] * v.y + m[8] * v.z) / I.z;
+  out.x = m[0] * lx + m[1] * ly + m[2] * lz;
+  out.y = m[3] * lx + m[4] * ly + m[5] * lz;
+  out.z = m[6] * lx + m[7] * ly + m[8] * lz;
+  return out;
+}
+
+/** Applies impulse J at world offset r from the centre of mass. */
+export function applyImpulse(c: CarState, r: Vec3, jx: number, jy: number, jz: number): void {
+  const inv = 1 / CAR.mass;
+  c.vel.x += jx * inv; c.vel.y += jy * inv; c.vel.z += jz * inv;
+  tmp.x = r.y * jz - r.z * jy;
+  tmp.y = r.z * jx - r.x * jz;
+  tmp.z = r.x * jy - r.y * jx;
+  invInertiaMul(tmp2, c, tmp);
+  c.angVel.x += tmp2.x; c.angVel.y += tmp2.y; c.angVel.z += tmp2.z;
+}
+
+/** Inverse effective mass along unit direction d at offset r. */
+export function effectiveInvMass(c: CarState, r: Vec3, d: Vec3): number {
+  tmp.x = r.y * d.z - r.z * d.y;
+  tmp.y = r.z * d.x - r.x * d.z;
+  tmp.z = r.x * d.y - r.y * d.x;
+  invInertiaMul(tmp2, c, tmp);
+  const cx = tmp2.y * r.z - tmp2.z * r.y;
+  const cy = tmp2.z * r.x - tmp2.x * r.z;
+  const cz = tmp2.x * r.y - tmp2.y * r.x;
+  return 1 / CAR.mass + d.x * cx + d.y * cy + d.z * cz;
+}
+
+/** Collision response of the car against an immovable surface point. */
+function surfaceImpulse(c: CarState, n: Vec3, r: Vec3, e: number, mu: number): void {
+  const v = c.vel, w = c.angVel;
+  let px = v.x + (w.y * r.z - w.z * r.y);
+  let py = v.y + (w.z * r.x - w.x * r.z);
+  let pz = v.z + (w.x * r.y - w.y * r.x);
+  const vn = px * n.x + py * n.y + pz * n.z;
+  if (vn >= 0) return;
+  const k = effectiveInvMass(c, r, n);
+  const eff = -vn < CAR.collision.restitutionSpeedThreshold ? 0 : e;
+  const J = (-(1 + eff) * vn) / k;
+  applyImpulse(c, r, n.x * J, n.y * J, n.z * J);
+
+  px = v.x + (w.y * r.z - w.z * r.y);
+  py = v.y + (w.z * r.x - w.x * r.z);
+  pz = v.z + (w.x * r.y - w.y * r.x);
+  const pn = px * n.x + py * n.y + pz * n.z;
+  const tx = px - n.x * pn, ty = py - n.y * pn, tz = pz - n.z * pn;
+  const tl = Math.sqrt(tx * tx + ty * ty + tz * tz);
+  if (tl < 1e-6) return;
+  rr.x = tx / tl; rr.y = ty / tl; rr.z = tz / tl;
+  const kt = effectiveInvMass(c, r, rr);
+  const Jt = Math.min(tl / kt, mu * J);
+  applyImpulse(c, r, -rr.x * Jt, -rr.y * Jt, -rr.z * Jt);
+}
+
+/** Hitbox (8 corners + 6 face centres) vs arena. */
+export function collideCarArena(c: CarState): void {
+  const hs = CAR.hitboxSize;
+  const hx = hs.x / 2, hy = hs.y / 2, hz = hs.z / 2;
+  const tol = CAR.collision.arenaTolerance;
+  const m = c.basis.m;
+  for (let iter = 0; iter < 2; iter++) {
+    let maxPen = 0;
+    let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < 14; i++) {
+      let lx: number, ly: number, lz: number;
+      if (i < 8) {
+        lx = i & 1 ? hx : -hx; ly = i & 2 ? hy : -hy; lz = i & 4 ? hz : -hz;
+      } else {
+        lx = 0; ly = 0; lz = 0;
+        const a = i - 8;
+        const s = a & 1 ? 1 : -1;
+        if (a < 2) lx = s * hx; else if (a < 4) ly = s * hy; else lz = s * hz;
+      }
+      const rx = m[0] * lx + m[1] * ly + m[2] * lz;
+      const ry = m[3] * lx + m[4] * ly + m[5] * lz;
+      const rz = m[6] * lx + m[7] * ly + m[8] * lz;
+      const px = c.pos.x + rx, py = c.pos.y + ry, pz = c.pos.z + rz;
+      const pen = -arena.sdf(px, py, pz) - tol;
+      if (pen <= 0) continue;
+      arena.normal(nn, px, py, pz);
+      surfaceImpulseAt(c, nn, rx, ry, rz);
+      if (pen > maxPen) { maxPen = pen; cx = nn.x; cy = nn.y; cz = nn.z; }
+    }
+    if (maxPen <= 0) break;
+    c.pos.x += cx * maxPen; c.pos.y += cy * maxPen; c.pos.z += cz * maxPen;
+  }
+}
+
+const rArm = new Vec3();
+const nArm = new Vec3();
+function surfaceImpulseAt(c: CarState, n: Vec3, rx: number, ry: number, rz: number): void {
+  vec3.set(rArm, rx, ry, rz);
+  vec3.copy(nArm, n);
+  surfaceImpulse(c, nArm, rArm, CAR.collision.restitution, CAR.collision.friction);
+}
+
+function sign(v: number): number {
+  return v > 0 ? 1 : v < 0 ? -1 : 0;
+}
+
+/** Advances one car by dt. Arena collision included; car-car / car-ball are handled by the caller. */
+export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): void {
+  if (c.demolished) return;
+  carInertia(I);
+  mat3.fromQuat(c.basis, c.rot);
+  const m = c.basis.m;
+  vec3.set(fwdV, m[0], m[3], m[6]);
+  vec3.set(leftV, m[1], m[4], m[7]);
+  vec3.set(upV, m[2], m[5], m[8]);
+
+  const g = PHYSICS.gravity;
+  const jumpPressed = inp.jump && !c.prevJump;
+  const boostPressed = inp.boost && !c.prevBoost;
+  c.prevJump = inp.jump;
+  c.prevBoost = inp.boost;
+
+  // ---- wheel raycasts -------------------------------------------------------------------------
+  let contacts = 0;
+  const reach = CAR.restHeight + CAR.wheels.maxTravel;
+  const lockout = c.groundLockout > 0;
+  if (lockout) c.groundLockout -= dt;
+  const wh = CAR.wheels;
+  const ho = CAR.hitboxOffset;
+  nn.x = 0; nn.y = 0; nn.z = 0;
+  for (let i = 0; i < 4; i++) {
+    const front = i < 2;
+    const w = front ? wh.front : wh.rear;
+    const lx = w.connection.x - ho.x;
+    const ly = (i & 1 ? -1 : 1) * w.connection.y;
+    wHit[i] = false;
+    c.wheelHit[i] = false;
+    if (lockout) continue;
+    const ox = c.pos.x + fwdV.x * lx + leftV.x * ly;
+    const oy = c.pos.y + fwdV.y * lx + leftV.y * ly;
+    const oz = c.pos.z + fwdV.z * lx + leftV.z * ly;
+    const d = arena.raycast(ox, oy, oz, -upV.x, -upV.y, -upV.z, reach, wN[i]);
+    if (d < 0) continue;
+    wHit[i] = true;
+    c.wheelHit[i] = true;
+    wD[i] = d;
+    wP[i].x = ox - upV.x * d; wP[i].y = oy - upV.y * d; wP[i].z = oz - upV.z * d;
+    nn.x += wN[i].x; nn.y += wN[i].y; nn.z += wN[i].z;
+    contacts++;
+  }
+  c.wheelContacts = contacts;
+  c.onGround = contacts >= CAR.drive.minWheelsForSticky;
+  if (c.onGround) {
+    vec3.normalize(c.surfaceNormal, nn);
+    c.jumped = false; c.flipUsed = false; c.airTime = 0; c.flipActive = false;
+    c.flipCancel = false; c.pitchLock = 0; c.jumpHeld = false;
+  } else {
+    c.airTime += dt;
+  }
+
+  // ---- gravity --------------------------------------------------------------------------------
+  c.vel.z += g * dt;
+
+  // ---- suspension -----------------------------------------------------------------------------
+  if (contacts > 0) {
+    for (let i = 0; i < 4; i++) {
+      if (!wHit[i]) continue;
+      const w = i < 2 ? wh.front : wh.rear;
+      const restEff = CAR.restHeight - w.radius;
+      const len = wD[i] - w.radius;
+      const compression = clamp(restEff - len, 0, wh.maxTravel);
+      if (compression <= 0 && len > restEff + wh.maxTravel) continue;
+      const n = wN[i];
+      rr.x = wP[i].x - c.pos.x; rr.y = wP[i].y - c.pos.y; rr.z = wP[i].z - c.pos.z;
+      const vpn =
+        (c.vel.x + (c.angVel.y * rr.z - c.angVel.z * rr.y)) * n.x +
+        (c.vel.y + (c.angVel.z * rr.x - c.angVel.x * rr.z)) * n.y +
+        (c.vel.z + (c.angVel.x * rr.y - c.angVel.y * rr.x)) * n.z;
+      const damp = vpn < 0 ? wh.dampingCompression : wh.dampingRelaxation;
+      const a = wh.suspensionStiffness * compression - damp * vpn;
+      if (a <= 0) continue;
+      const J = CAR.mass * a * dt;
+      const jx = n.x * J, jy = n.y * J, jz = n.z * J;
+      vec3.set(rArm, rr.x, rr.y, rr.z);
+      applyImpulse(c, rArm, jx, jy, jz);
+    }
+  }
+
+  // ---- boost state ----------------------------------------------------------------------------
+  if (boostPressed && c.boost > 0) c.boostHold = CAR.boost.minHoldTime;
+  c.boosting = c.boost > 0 && (inp.boost || c.boostHold > 0);
+  if (c.boostHold > 0) c.boostHold -= dt;
+
+  // ---- jumping --------------------------------------------------------------------------------
+  let justJumped = false;
+  if (jumpPressed && c.onGround) {
+    justJumped = true;
+    const J = CAR.jump.impulse;
+    c.vel.x += upV.x * J; c.vel.y += upV.y * J; c.vel.z += upV.z * J;
+    c.jumped = true; c.jumpTimer = 0; c.jumpHeld = true;
+    c.groundLockout = CAR.drive.jumpGroundLockout;
+    c.onGround = false; c.wheelContacts = 0; c.airTime = 0;
+    contacts = 0;
+  } else if (c.jumpHeld) {
+    if (c.jumpTimer < CAR.jump.holdMaxTime && (inp.jump || c.jumpTimer < CAR.jump.holdMinTime)) {
+      const a = CAR.jump.holdAccel * dt;
+      c.vel.x += upV.x * a; c.vel.y += upV.y * a; c.vel.z += upV.z * a;
+      c.jumpTimer += dt;
+    } else {
+      c.jumpHeld = false;
+    }
+  }
+
+  if (jumpPressed && !justJumped && !c.onGround && !c.flipUsed && c.airTime <= CAR.jump.secondJumpWindow) {
+    startSecondJump(c, inp);
+  }
+
+  // ---- flip dynamics --------------------------------------------------------------------------
+  if (c.flipActive) {
+    c.flipTimer += dt;
+    const fl = CAR.flip;
+    // hang: damp vertical velocity in a short window
+    if (c.flipTimer >= fl.zDampStart && c.flipTimer <= fl.zDampEnd) {
+      c.vel.z *= Math.pow(fl.zDampFactor, dt / (fl.zDampEnd - fl.zDampStart));
+    }
+    // cancel: opposite pitch input stops the rotation
+    if (!c.flipCancel && c.flipDirX !== 0 && inp.pitch * c.flipDirX < -fl.cancelThreshold) c.flipCancel = true;
+    if (c.flipTimer >= fl.duration) c.flipActive = false;
+  }
+  if (c.pitchLock > 0) c.pitchLock -= dt;
+
+  // ---- ground driving -------------------------------------------------------------------------
+  const D = CAR.drive;
+  if (c.onGround) {
+    const n = c.surfaceNormal;
+    const fd = fwdV.x * n.x + fwdV.y * n.y + fwdV.z * n.z;
+    fF.x = fwdV.x - n.x * fd; fF.y = fwdV.y - n.y * fd; fF.z = fwdV.z - n.z * fd;
+    vec3.normalize(fF, fF);
+    lF.x = n.y * fF.z - n.z * fF.y;
+    lF.y = n.z * fF.x - n.x * fF.z;
+    lF.z = n.x * fF.y - n.y * fF.x;
+    const vf = c.vel.x * fF.x + c.vel.y * fF.y + c.vel.z * fF.z;
+    const thr = inp.throttle;
+    const speedAbs = vf < 0 ? -vf : vf;
+
+    if (thr !== 0) {
+      if (vf * thr >= 0 || speedAbs < 1) {
+        const a = curve(D.throttleAccelCurve, speedAbs) * thr * dt;
+        c.vel.x += fF.x * a; c.vel.y += fF.y * a; c.vel.z += fF.z * a;
+      } else {
+        const dv = Math.min(speedAbs, D.brakeDecel * Math.abs(thr) * dt) * -sign(vf);
+        c.vel.x += fF.x * dv; c.vel.y += fF.y * dv; c.vel.z += fF.z * dv;
+      }
+    } else if (!c.boosting) {
+      const dv = Math.min(speedAbs, D.coastDecel * dt) * -sign(vf);
+      c.vel.x += fF.x * dv; c.vel.y += fF.y * dv; c.vel.z += fF.z * dv;
+    }
+
+    // lateral grip
+    const lv = c.vel.x * lF.x + c.vel.y * lF.y + c.vel.z * lF.z;
+    const grip = 1 - Math.exp(-(inp.handbrake ? D.handbrakeGripRate : D.lateralGripRate) * dt);
+    c.vel.x -= lF.x * lv * grip; c.vel.y -= lF.y * lv * grip; c.vel.z -= lF.z * lv * grip;
+
+    // steering: yaw rate about the surface normal = v * tan(angle) / wheelbase
+    const vSteer = inp.handbrake ? Math.sqrt(vf * vf + lv * lv) * (vf < -1 ? -1 : 1) : vf;
+    let angle = curve(D.steerCurve, Math.abs(vSteer));
+    if (inp.handbrake) angle *= D.handbrakeSteerScale;
+    const wTarget = (-inp.steer * vSteer * Math.tan(angle)) / D.wheelbase;
+    const wn = c.angVel.x * n.x + c.angVel.y * n.y + c.angVel.z * n.z;
+    const k = Math.min(1, D.steerResponse * dt) * (wTarget - wn);
+    c.angVel.x += n.x * k; c.angVel.y += n.y * k; c.angVel.z += n.z * k;
+
+    // sticky force holds the car to whatever it is driving on
+    const t = clamp(1 - n.z, 0, 1);
+    const scale = D.stickyBase + (D.stickyMax - D.stickyBase) * t;
+    const s = -g * scale * dt; // g is negative -> s positive magnitude along -n
+    c.vel.x -= n.x * s; c.vel.y -= n.y * s; c.vel.z -= n.z * s;
+  }
+
+  // ---- boost thrust ---------------------------------------------------------------------------
+  if (c.boosting) {
+    const a = CAR.boost.accel * dt;
+    if (c.onGround) {
+      c.vel.x += fF.x * a; c.vel.y += fF.y * a; c.vel.z += fF.z * a;
+    } else {
+      c.vel.x += fwdV.x * a; c.vel.y += fwdV.y * a; c.vel.z += fwdV.z * a;
+    }
+    c.boost = Math.max(0, c.boost - CAR.boost.useRate * dt);
+  }
+
+  // ---- air control ----------------------------------------------------------------------------
+  if (!c.onGround) {
+    const A = CAR.air;
+    if (contacts === 0) {
+      const ta = A.throttleAccel * inp.throttle * dt;
+      c.vel.x += fwdV.x * ta; c.vel.y += fwdV.y * ta; c.vel.z += fwdV.z * ta;
+    }
+    // world -> local angular velocity
+    const wx = c.angVel.x, wy = c.angVel.y, wz = c.angVel.z;
+    let lx = m[0] * wx + m[3] * wy + m[6] * wz; // roll axis (forward)
+    let ly = m[1] * wx + m[4] * wy + m[7] * wz; // pitch axis (left)
+    let lz = m[2] * wx + m[5] * wy + m[8] * wz; // yaw axis (up)
+
+    const flipping = c.flipActive;
+    const pIn = c.pitchLock > 0 || flipping ? 0 : inp.pitch;
+    const rIn = flipping ? 0 : inp.roll;
+    const yIn = inp.yaw !== 0 ? inp.yaw : inp.steer;
+
+    lx += (A.torque.roll * rIn - lx * A.damping.roll) * dt;
+    ly += (A.torque.pitch * pIn - ly * A.damping.pitch * (1 - Math.abs(pIn))) * dt;
+    lz += (-A.torque.yaw * yIn - lz * A.damping.yaw * (1 - Math.abs(yIn))) * dt;
+
+    if (flipping) {
+      const fl = CAR.flip;
+      if (c.flipCancel) {
+        const k = Math.exp(-30 * dt);
+        lx *= k; ly *= k;
+      } else if (c.flipTimer < fl.minTorqueTime) {
+        lx += fl.torqueRoll * c.flipDirY * dt;
+        ly += fl.torquePitch * c.flipDirX * dt;
+      }
+    }
+    c.angVel.x = m[0] * lx + m[1] * ly + m[2] * lz;
+    c.angVel.y = m[3] * lx + m[4] * ly + m[5] * lz;
+    c.angVel.z = m[6] * lx + m[7] * ly + m[8] * lz;
+  }
+
+  // ---- limits + integration -------------------------------------------------------------------
+  vec3.clampLength(c.vel, c.vel, CAR.maxSpeed);
+  vec3.clampLength(c.angVel, c.angVel, CAR.maxAngularSpeed);
+  c.pos.x += c.vel.x * dt; c.pos.y += c.vel.y * dt; c.pos.z += c.vel.z * dt;
+  quat.integrate(c.rot, c.rot, c.angVel.x, c.angVel.y, c.angVel.z, dt);
+  mat3.fromQuat(c.basis, c.rot);
+
+  collideCarArena(c);
+  vec3.clampLength(c.vel, c.vel, CAR.maxSpeed);
+
+  const sp = vec3.length(c.vel);
+  if (c.supersonic) {
+    if (sp < CAR.supersonicOff) c.supersonic = false;
+  } else if (sp >= CAR.supersonicOn) c.supersonic = true;
+}
+
+function startSecondJump(c: CarState, inp: CarInput): void {
+  const fl = CAR.flip;
+  const m = c.basis.m;
+  const dx = inp.pitch;
+  const dy = inp.yaw !== 0 ? inp.yaw : inp.roll !== 0 ? inp.roll : inp.steer;
+  const mag = Math.sqrt(dx * dx + dy * dy);
+  c.flipUsed = true;
+  c.jumpHeld = false;
+  if (mag < fl.deadzone) {
+    const J = CAR.jump.impulse;
+    c.vel.x += m[2] * J; c.vel.y += m[5] * J; c.vel.z += m[8] * J;
+    return;
+  }
+  const ux = dx / mag, uy = dy / mag;
+  // horizontal frame from the car's forward axis
+  let fx = m[0], fy = m[3];
+  let fl2 = Math.sqrt(fx * fx + fy * fy);
+  if (fl2 < 0.05) { fx = m[2]; fy = m[5]; fl2 = Math.sqrt(fx * fx + fy * fy); }
+  if (fl2 < 1e-6) { fx = 1; fy = 0; fl2 = 1; }
+  fx /= fl2; fy /= fl2;
+  const rx = fy, ry = -fx; // right
+  const vf = c.vel.x * fx + c.vel.y * fy;
+  const scaleF = ux > 0 ? curve(fl.forwardScaleCurve, Math.abs(vf)) : fl.backwardScale;
+  const along = ux * (ux > 0 ? scaleF : fl.backwardScale);
+  const side = uy * fl.sideScale;
+  c.vel.x += (fx * along + rx * side) * fl.impulse;
+  c.vel.y += (fy * along + ry * side) * fl.impulse;
+  c.flipActive = true;
+  c.flipTimer = 0;
+  c.flipDirX = ux;
+  c.flipDirY = uy;
+  c.flipCancel = false;
+  c.pitchLock = fl.pitchLockTime + fl.pitchLockExtra;
+}
