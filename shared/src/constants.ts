@@ -10,7 +10,7 @@ export const PHYSICS = {
   maxSubSteps: 5,
   /** Gravity on Z, shared by car and ball. */
   gravity: -650,
-} as const;
+};
 
 export const CAR = {
   /** Hitbox size (length, width, height). */
@@ -112,7 +112,7 @@ export const CAR = {
     minSpeed: 2200,
     respawnTime: 3,
   },
-} as const;
+};
 
 export const BALL = {
   radius: 91.25,
@@ -133,7 +133,7 @@ export const BALL = {
     /** Blend toward car-forward for the extra impulse. */
     forwardScale: 0.65,
   },
-} as const;
+};
 
 export const ARENA = {
   halfWidth: 4096,
@@ -151,7 +151,7 @@ export const ARENA = {
     backY: 6000,
     postRadius: 20,
   },
-} as const;
+};
 
 export const PADS = {
   large: { amount: 100, respawn: 10, radius: 208, height: 168 },
@@ -172,7 +172,7 @@ export const PADS = {
     [0, 1024],
     [1024, 0],
   ],
-} as const;
+};
 
 export const SPAWN = {
   /** Blue kickoff spots (x, y, yaw). Orange mirrors (x, y, yaw) through the origin. */
@@ -186,14 +186,14 @@ export const SPAWN = {
   /** Car body-origin height at spawn. */
   z: 17,
   countdown: 3,
-} as const;
+};
 
 export const MATCH = {
   length: 300,
   goalCelebration: 3,
   replaySeconds: 6,
   overtimeSudden: true,
-} as const;
+};
 
 export const CAMERA_DEFAULTS = {
   fov: 110,
@@ -203,7 +203,7 @@ export const CAMERA_DEFAULTS = {
   stiffness: 0.45,
   swivelSpeed: 4.5,
   transitionSpeed: 1.2,
-} as const;
+};
 
 export const NET = {
   protocolVersion: 1,
@@ -213,7 +213,7 @@ export const NET = {
   jitterBufferTicks: 2,
   interpDelaySnapshots: 2,
   maxPlayersPerRoom: 4,
-} as const;
+};
 
 /** Expands a half-field table into all mirrored positions. */
 export function mirrorPads(base: readonly (readonly number[])[]): { x: number; y: number }[] {
