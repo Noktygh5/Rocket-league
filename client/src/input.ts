@@ -93,7 +93,6 @@ export class InputSampler {
     out.jump = this.held('jump');
     out.boost = this.held('boost');
     out.handbrake = this.held('powerslide');
-    out.recover = this.held('recover');
     return out;
   }
 }

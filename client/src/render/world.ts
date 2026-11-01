@@ -8,6 +8,7 @@ import { Quality } from '../settings';
 import { ArenaView, buildArena } from './arenaMesh';
 import { CarVisual, createCarVisual } from './carMesh';
 import { Particles } from './particles';
+import { SkidMarks } from './skid';
 
 export interface QuatLike { x: number; y: number; z: number; w: number }
 export interface CarFrame {
@@ -20,6 +21,10 @@ export interface CarFrame {
   fwdSpeed: number;
   steer: number;
   demolished: boolean;
+  handbrake: boolean;
+  /** Sideways speed over the ground (uu/s). */
+  slip: number;
+  onGround: boolean;
 }
 export interface Frame {
   ball: { x: number; y: number; z: number; q: QuatLike };
@@ -76,6 +81,8 @@ export class World {
   private shadowFloor: THREE.Mesh;
   private clock = 0;
   private wasBoosting: boolean[] = [];
+  private skid = new SkidMarks();
+  private lastSkid: Float32Array[] = [];
   private ring: THREE.Mesh;
   private tmpV = new THREE.Vector3();
 
@@ -85,6 +92,7 @@ export class World {
     this.renderer.setClearColor(0x05070b);
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 5, 60000);
     this.scene.add(this.particles.points);
+    this.scene.add(this.skid.mesh);
 
     this.scene.add(new THREE.HemisphereLight(0xffc7a0, 0x2a3a22, 1.7));
     this.sun = new THREE.DirectionalLight(0xffe2c0, 2.5);
@@ -202,6 +210,28 @@ export class World {
     this.particles.burst(x, z, -y, 70, 900, new THREE.Color(0xffd9a0), 0.9, 45);
   }
 
+  /** Lays temporary tyre marks behind the rear wheels while the car drifts or powerslides on flat ground. */
+  private tyreMarks(i: number, c: CarFrame, root: THREE.Group): void {
+    const last = (this.lastSkid[i] ??= new Float32Array([1e9, 1e9, 1e9, 1e9]));
+    const up = this.tmpV.set(0, 1, 0).applyQuaternion(root.quaternion).y;
+    const speed = Math.abs(c.fwdSpeed);
+    const drifting = c.onGround && up > 0.9 && c.z < 60 && ((c.handbrake && speed > 250) || c.slip > 240);
+    if (!drifting) { last[0] = 1e9; last[2] = 1e9; return; }
+    const fwd = new THREE.Vector3(1, 0, 0).applyQuaternion(root.quaternion);
+    // marks follow the direction the tyres are actually travelling (velocity), not where the car points
+    const vx = c.fwdSpeed * fwd.x, vz = c.fwdSpeed * fwd.z;
+    const ang = Math.atan2(-vz, vx);
+    for (let w = 0; w < 2; w++) {
+      const p = new THREE.Vector3(-47.6, -37.77, w ? -40 : 40).applyQuaternion(root.quaternion).add(root.position);
+      const k = w * 2;
+      if (Math.hypot(p.x - last[k], p.z - last[k + 1]) > 14) {
+        this.skid.add(p.x, p.z, ang, Math.min(1, 0.55 + c.slip / 900));
+        last[k] = p.x; last[k + 1] = p.z;
+        if (Math.random() < 0.35) this.particles.spawn(p.x, 6, p.z, (Math.random() - 0.5) * 60, 40 + Math.random() * 40, (Math.random() - 0.5) * 60, 0.35, 0.35, 0.33, 0.7, 34, 1.8);
+      }
+    }
+  }
+
   render(f: Frame, dt: number): void {
     this.clock += dt;
     // ball
@@ -218,11 +248,12 @@ export class World {
       root.position.set(c.x, c.z, -c.y);
       setQuat(root, c.q);
       view.update(dt, c.boosting, c.supersonic, c.boost, c.fwdSpeed, c.steer);
+      this.tyreMarks(i, c, root);
       if (c.boosting && !this.wasBoosting[i]) {
         // ignition: a few big yellow-orange fireballs, like the reference footage
         const o = new THREE.Vector3(-70, -8, 0).applyQuaternion(root.quaternion).add(root.position);
         const b0 = new THREE.Vector3(-1, 0, 0).applyQuaternion(root.quaternion);
-        for (let k = 0; k < 10; k++) this.particles.spawn(o.x, o.y, o.z, b0.x * 260 + (Math.random() - 0.5) * 240, b0.y * 260 + (Math.random() - 0.5) * 240 + 40, b0.z * 260 + (Math.random() - 0.5) * 240, 1, 0.72, 0.18, 0.55, 95, 2.2);
+        for (let k = 0; k < 6; k++) this.particles.spawn(o.x, o.y, o.z, b0.x * 260 + (Math.random() - 0.5) * 240, b0.y * 260 + (Math.random() - 0.5) * 240 + 40, b0.z * 260 + (Math.random() - 0.5) * 240, 0.85, 0.5, 0.12, 0.45, 55, 2.4);
       }
       this.wasBoosting[i] = c.boosting;
       if (c.boosting) {
@@ -235,7 +266,7 @@ export class World {
             1, 0.55 + Math.random() * 0.3, 0.15, 0.4, 26, 3);
         }
         if (Math.random() < 0.5) {
-          this.particles.spawn(this.tmpV.x, this.tmpV.y, this.tmpV.z, back.x * 140 + (Math.random() - 0.5) * 60, back.y * 140 + 25, back.z * 140 + (Math.random() - 0.5) * 60, 1, 0.62, 0.15, 0.5, 60, 2.5);
+          this.particles.spawn(this.tmpV.x, this.tmpV.y, this.tmpV.z, back.x * 140 + (Math.random() - 0.5) * 60, back.y * 140 + 25, back.z * 140 + (Math.random() - 0.5) * 60, 0.8, 0.45, 0.1, 0.4, 36, 2.5);
         }
       }
     }
@@ -270,6 +301,11 @@ export class World {
     this.camera.lookAt(c.tx, c.tz, -c.ty);
     if (Math.abs(this.camera.fov - c.fov) > 0.01) { this.camera.fov = c.fov; this.camera.updateProjectionMatrix(); }
 
+    this.skid.update(dt);
+    // the ball's glow must never flood the screen when the camera is close to it
+    const hd = Math.hypot(f.ball.x - c.px, f.ball.y - c.py, f.ball.z - c.pz);
+    this.ballHalo.visible = hd > 650;
+    (this.ballHalo.material as THREE.MeshBasicMaterial).opacity = Math.min(1, (hd - 650) / 1400);
     this.particles.update(dt);
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);

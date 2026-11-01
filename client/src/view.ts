@@ -99,14 +99,17 @@ export class GameView {
     this.camera.aspect = this.world.aspect;
     this.frame = {
       ball: { x: 0, y: 0, z: 0, q: { x: 0, y: 0, z: 0, w: 1 } },
-      cars: opts.teams.map((t) => ({ x: 0, y: 0, z: 0, q: { x: 0, y: 0, z: 0, w: 1 }, team: t, boosting: false, supersonic: false, boost: 0, fwdSpeed: 0, steer: 0, demolished: false })),
+      cars: opts.teams.map((t) => ({ x: 0, y: 0, z: 0, q: { x: 0, y: 0, z: 0, w: 1 }, team: t, boosting: false, supersonic: false, boost: 0, fwdSpeed: 0, steer: 0, demolished: false, handbrake: false, slip: 0, onGround: true })),
       padActive: new Array(34).fill(true), padTimer01: new Array(34).fill(0),
       cam: { px: 0, py: 0, pz: 0, tx: 0, ty: 0, tz: 0, ux: 0, uy: 0, uz: 1, fov: 100 }, focus: opts.localIndex,
     };
     window.addEventListener('resize', this.resizeHandler);
   }
 
-  toggleBallCam(): void { this.camera.ballCam = !this.camera.ballCam; }
+  toggleBallCam(): void {
+    this.camera.ballCam = !this.camera.ballCam;
+    this.hud.notice(this.camera.ballCam ? 'BALL CAM ON' : 'BALL CAM OFF');
+  }
   skipReplay(): void { this.replaySkipped = true; }
   get replaying(): boolean { return this.replayStarted && !this.replaySkipped; }
 
@@ -156,6 +159,9 @@ export class GameView {
       o.boosting = c.boosting; o.supersonic = c.supersonic; o.boost = c.boost; o.demolished = c.demolished;
       o.fwdSpeed = c.vx * c.fx + c.vy * c.fy + c.vz * c.fz;
       o.steer = c.steer;
+      o.handbrake = c.handbrake; o.onGround = c.onGround;
+      const sp2 = c.vx * c.vx + c.vy * c.vy + c.vz * c.vz;
+      o.slip = Math.sqrt(Math.max(0, sp2 - o.fwdSpeed * o.fwdSpeed)); // speed sliding sideways
     }
     for (let i = 0; i < f.padActive.length; i++) {
       f.padActive[i] = s.padActive[i]; f.padTimer01[i] = s.padTimer[i];

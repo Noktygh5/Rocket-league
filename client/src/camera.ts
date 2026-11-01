@@ -105,9 +105,9 @@ export class ChaseCamera {
 
     // keep the camera inside the arena
     const d = arena.sdf(this.pos.x, this.pos.y, this.pos.z);
-    if (d < 45) {
+    if (d < CAGE_MARGIN) {
       arena.normal(tmpB, this.pos.x, this.pos.y, this.pos.z);
-      const push = 45 - d;
+      const push = CAGE_MARGIN - d;
       this.pos.x += tmpB.x * push; this.pos.y += tmpB.y * push; this.pos.z += tmpB.z * push;
     }
 
@@ -167,6 +167,8 @@ function flatten(out: Vec3, v: Vec3, n: Vec3): Vec3 {
 }
 
 /** The camera horizon never tilts more than this far from upright, even on walls and ceilings. */
+/** Keep the camera this far inside the wire cage so the net never fills the screen. */
+const CAGE_MARGIN = 120;
 const MAX_TILT = (65 * Math.PI) / 180;
 
 /** Spherical interpolation between unit vectors; `hint` supplies a rotation axis when they are opposite. */

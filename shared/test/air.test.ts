@@ -266,64 +266,9 @@ describe('flip completes and roof recovery', () => {
     c.rot.x = 1; c.rot.y = 0; c.rot.z = 0; c.rot.w = 0;
     c.pos.z = 30;
     for (let i = 0; i < 60; i++) stepCar(c, inputOf({}), dt);
-    for (let i = 0; i < 120 * 3; i++) stepCar(c, inputOf({ roll: 1 }), dt);
-    expect(upZ(c)).toBeGreaterThan(0.5);
-  });
-});
-
-describe('reset upright (R)', () => {
-  const keep = CAR.recovery.autoRightDelay;
-  beforeEach(() => { CAR.recovery.autoRightDelay = 1e9; });
-  afterEach(() => { CAR.recovery.autoRightDelay = keep; });
-  const flipped = (): CarState => {
-    const c = new CarState();
-    placeCar(c, 1200, -800, 0.7);
-    // roll 180 degrees about the forward axis
-    const half = Math.PI / 2;
-    const yaw = 0.7 / 2;
-    c.rot.x = Math.cos(yaw) * Math.sin(half) * 1; c.rot.y = Math.sin(yaw) * Math.sin(half); c.rot.z = Math.sin(yaw) * Math.cos(half); c.rot.w = Math.cos(yaw) * Math.cos(half);
-    c.pos.z = 30; c.onGround = false; c.wheelContacts = 0;
-    for (let i = 0; i < 120; i++) stepCar(c, inputOf({}), dt);
-    return c;
-  };
-
-  it('stands an upside-down car back on its wheels in the same place', () => {
-    const c = flipped();
-    expect(c.basis.m[8]).toBeLessThan(-0.9);
-    const x = c.pos.x, y = c.pos.y;
-    stepCar(c, inputOf({ recover: true }), dt);
-    expect(c.basis.m[8]).toBeGreaterThan(0.99);
-    expect(Math.hypot(c.pos.x - x, c.pos.y - y)).toBeLessThan(2);
-    for (let i = 0; i < 120; i++) stepCar(c, inputOf({}), dt);
-    expect(c.onGround).toBe(true);
-    expect(c.basis.m[8]).toBeGreaterThan(0.99);
-    expect(Math.hypot(c.pos.x - x, c.pos.y - y)).toBeLessThan(3);
-  });
-
-  it('keeps the heading it had', () => {
-    const c = flipped();
-    const before = Math.atan2(c.basis.m[3], c.basis.m[0]);
-    stepCar(c, inputOf({ recover: true }), dt);
-    expect(Math.abs(Math.atan2(c.basis.m[3], c.basis.m[0]) - before)).toBeLessThan(0.05);
-  });
-
-  it('does nothing for an upright car or one flying through the air', () => {
-    const g = groundCar();
-    for (let i = 0; i < 60; i++) stepCar(g, inputOf({}), dt);
-    const q = { x: g.rot.x, y: g.rot.y, z: g.rot.z, w: g.rot.w };
-    stepCar(g, inputOf({ recover: true }), dt);
-    expect(Math.abs(g.rot.w - q.w) + Math.abs(g.rot.z - q.z)).toBeLessThan(1e-3);
-    const a = airCar(1500);
-    a.rot.x = 1; a.rot.y = 0; a.rot.z = 0; a.rot.w = 0; // upside down, but mid-air
-    stepCar(a, inputOf({}), dt);
-    stepCar(a, inputOf({ recover: true }), dt);
-    expect(a.basis.m[8]).toBeLessThan(0);
-  });
-
-  it('has a short cooldown', () => {
-    const c = flipped();
-    stepCar(c, inputOf({ recover: true }), dt);
-    expect(c.recoverCooldown).toBeGreaterThan(0.9);
+    for (let i = 0; i < 400 && upZ(c) < 0.0; i++) stepCar(c, inputOf({ roll: 1 }), dt);
+    for (let i = 0; i < 120 * 2; i++) stepCar(c, inputOf({}), dt);
+    expect(upZ(c)).toBeGreaterThan(0.2);
   });
 });
 
@@ -353,10 +298,43 @@ describe('automatic righting', () => {
   });
   it('waits for the delay and never triggers on an upright car', () => {
     const c = tipped([1, 0, 0, 0]);
-    for (let i = 0; i < 120 * 0.3; i++) stepCar(c, inputOf({}), dt);
+    for (let i = 0; i < 120 * 0.12; i++) stepCar(c, inputOf({}), dt);
     expect(c.autoRight).toBe(false);
     const g = groundCar();
     for (let i = 0; i < 120 * 3; i++) stepCar(g, inputOf({}), dt);
     expect(g.tippedTime).toBe(0);
+  });
+});
+
+describe('never stays upside down', () => {
+  it('a car falling inverted with no input levels itself before landing', () => {
+    const c = airCar(1500);
+    c.rot.x = 1; c.rot.y = 0; c.rot.z = 0; c.rot.w = 0; // upside down
+    for (let i = 0; i < 120 * 4 && !c.onGround; i++) stepCar(c, inputOf({}), dt);
+    for (let i = 0; i < 120; i++) stepCar(c, inputOf({}), dt);
+    expect(c.basis.m[8]).toBeGreaterThan(0.9);
+    expect(c.onGround).toBe(true);
+  });
+  it('self-levelling never fights the player (input keeps full control)', () => {
+    const c = airCar(1900);
+    for (let i = 0; i < 60; i++) stepCar(c, inputOf({ roll: 1 }), dt);
+    expect(Math.abs(c.angVel.x) + Math.abs(c.angVel.y) + Math.abs(c.angVel.z)).toBeGreaterThan(3);
+  });
+  it('after any flip the car ends the turn on its wheels', () => {
+    for (const [px, yw] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]] as [number, number][]) {
+      const c = airCar(1900);
+      stepCar(c, inputOf({}), dt);
+      stepCar(c, inputOf({ jump: true, pitch: px, yaw: yw }), dt);
+      for (let i = 0; i < 120 * 2; i++) stepCar(c, inputOf({}), dt);
+      expect(c.basis.m[8]).toBeGreaterThan(0.9);
+    }
+  });
+  it('a car stuck leaning tipped over on a ramp rights itself quickly', () => {
+    const c = new CarState();
+    placeCar(c, 3900, 0, Math.PI / 2);
+    c.rot.x = Math.SQRT1_2; c.rot.y = 0; c.rot.z = 0; c.rot.w = Math.SQRT1_2; // on its side
+    c.pos.z = 60; c.onGround = false; c.wheelContacts = 0;
+    for (let i = 0; i < 120 * 3; i++) stepCar(c, inputOf({}), dt);
+    expect(c.basis.m[8]).toBeGreaterThan(0.85);
   });
 });

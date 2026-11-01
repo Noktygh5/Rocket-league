@@ -53,7 +53,7 @@ export class OfflineGame {
 
   private onAction(a: Action): void {
     if (a === 'ballcam') this.view.toggleBallCam();
-    else if (a === 'skip' || (a === 'recover' && this.view.replaying)) {
+    else if (a === 'skip') {
       this.view.skipReplay();
       if (this.sim.phase === 2) this.sim.phaseTimer = Math.min(this.sim.phaseTimer, 1.0);
     } else if (a === 'pause') this.onPauseRequest?.();
@@ -139,7 +139,7 @@ export class OfflineGame {
       o.nx = c.surfaceNormal.x; o.ny = c.surfaceNormal.y; o.nz = c.surfaceNormal.z;
       const m = c.basis.m;
       o.fx = m[0]; o.fy = m[3]; o.fz = m[6];
-      o.steer = sim.inputs[i].steer; o.throttle = sim.inputs[i].throttle;
+      o.steer = sim.inputs[i].steer; o.throttle = sim.inputs[i].throttle; o.handbrake = sim.inputs[i].handbrake;
     }
     const b = sim.ball, sb = s.ball;
     sb.x = this.prevBall[0] + (b.pos.x - this.prevBall[0]) * a;

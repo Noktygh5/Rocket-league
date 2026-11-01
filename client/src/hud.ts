@@ -40,6 +40,7 @@ export class Hud {
         <div class="countdown" id="countdown"></div>
         <div class="banner" id="banner"></div>
         <div class="ballcam" id="ballcam">BALL CAM</div>
+        <div class="notice" id="notice"></div>
         <div class="warn" id="warn">Connection unstable</div>
         <div class="replay-ui" id="replayui"><div class="bar top"></div><div class="bar bottom"></div><div class="tag">REPLAY</div><div class="hint">Press Backspace to skip</div></div>
         <div class="boost">
@@ -124,6 +125,15 @@ export class Hud {
     this.banner.classList.add('show');
   }
   hideBanner(): void { this.banner.classList.remove('show'); }
+
+  /** Short centre-bottom message (ball cam on/off etc.). */
+  notice(text: string): void {
+    const n = this.q('#notice');
+    n.textContent = text;
+    n.classList.remove('show');
+    void n.offsetWidth;
+    n.classList.add('show');
+  }
 
   killFeed(attacker: string, victim: string, atkTeam: number): void {
     const d = document.createElement('div');

@@ -17,6 +17,7 @@ export interface CarSnap {
   fx: number; fy: number; fz: number;
   steer: number;
   throttle: number;
+  handbrake: boolean;
 }
 
 export interface BallSnap {
@@ -47,7 +48,7 @@ export interface RenderSnap {
 function carSnap(): CarSnap {
   return {
     x: 0, y: 0, z: 0, qx: 0, qy: 0, qz: 0, qw: 1, vx: 0, vy: 0, vz: 0, team: 0, boost: 33, boosting: false,
-    supersonic: false, demolished: false, onGround: true, nx: 0, ny: 0, nz: 1, fx: 1, fy: 0, fz: 0, steer: 0, throttle: 0,
+    supersonic: false, demolished: false, onGround: true, nx: 0, ny: 0, nz: 1, fx: 1, fy: 0, fz: 0, steer: 0, throttle: 0, handbrake: false,
   };
 }
 

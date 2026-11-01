@@ -114,3 +114,7 @@ table.res tr.mvp td:first-child::after { content: ' ★ MVP'; color: #ffd34d; fo
 .toast { position: fixed; left: 50%; bottom: 36px; transform: translateX(-50%); background: var(--panel); padding: 10px 20px; z-index: 30; border-left: 4px solid var(--orange2); }
 .loading { position: fixed; inset: 0; background: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 22px; letter-spacing: 6px; z-index: 40; }
 .debug { position: fixed; left: 10px; bottom: 10px; font: 12px/1.5 ui-monospace, Menlo, monospace; background: rgba(0,0,0,.6); padding: 8px 12px; white-space: pre; z-index: 5; pointer-events: none; }
+
+.notice { position: absolute; left: 50%; bottom: 17%; transform: translateX(-50%); font-weight: 800; letter-spacing: 4px; font-size: 22px; padding: 8px 20px; background: var(--panel); border-left: 4px solid var(--orange2); opacity: 0; }
+.notice.show { animation: noticeFade 1.6s ease-out forwards; }
+@keyframes noticeFade { 0% { opacity: 0; transform: translateX(-50%) translateY(8px); } 12% { opacity: 1; transform: translateX(-50%); } 75% { opacity: 1; } 100% { opacity: 0; } }

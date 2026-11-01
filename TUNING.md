@@ -99,11 +99,11 @@ Bot difficulty (reaction time, prediction horizon, aerials, ...) is configured i
 | `CAR.flip.cancelThreshold` | `0.5` | Opposite pitch input above this magnitude cancels the flip rotation. |
 | `CAR.flip.rotationDamping` | `3.5` | Pitch/roll damping while a flip coasts (flip + pitch lock). Lower = more rotation after the torque stops. |
 | `CAR.recovery.roofJumpScale` | `1.6` | Jump strength when resting on the roof, relative to a normal jump. |
-| `CAR.recovery.uprightThreshold` | `0.35` | The reset-upright button only works when the car's up axis is below this (z component), i.e. clearly tipped over. |
-| `CAR.recovery.cooldown` | `1` | Seconds before the reset-upright button can be used again. |
-| `CAR.recovery.autoRightDelay` | `0.55` | A car resting tipped over for this long (s) hops and rolls itself back onto its wheels. |
+| `CAR.recovery.autoRightDelay` | `0.25` | A car resting tipped over for this long (s) hops and rolls itself back onto its wheels. |
 | `CAR.recovery.autoRightHop` | `230` | Hop strength (uu/s) away from the surface when auto-righting starts. |
 | `CAR.recovery.autoRightRate` | `6.5` | Roll speed (rad/s) used while auto-righting. |
+| `CAR.recovery.airLevel` | `7` | In-air self-levelling (rad/s^2 per unit of tilt) when the player gives no steering input; 0 disables it. |
+| `CAR.recovery.airLevelDamping` | `1.6` | Extra angular damping (1/s) while self-levelling so the car settles instead of oscillating. |
 | `CAR.air.torque.roll` | `36.08` |  |
 | `CAR.air.torque.pitch` | `12.15` |  |
 | `CAR.air.torque.yaw` | `8.92` |  |

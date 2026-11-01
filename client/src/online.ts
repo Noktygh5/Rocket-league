@@ -70,7 +70,7 @@ export class OnlineGame {
 
   private onAction(a: Action): void {
     if (a === 'ballcam') this.view.toggleBallCam();
-    else if (a === 'skip' || (a === 'recover' && this.view.replaying)) this.view.skipReplay();
+    else if (a === 'skip') this.view.skipReplay();
     else if (a === 'pause') this.onPauseRequest?.();
   }
 
@@ -155,7 +155,7 @@ export class OnlineGame {
         o.nx = c.surfaceNormal.x; o.ny = c.surfaceNormal.y; o.nz = c.surfaceNormal.z;
         const m = c.basis.m;
         o.fx = m[0]; o.fy = m[3]; o.fz = m[6];
-        o.steer = this.local.steer; o.throttle = this.local.throttle;
+        o.steer = this.local.steer; o.throttle = this.local.throttle; o.handbrake = this.local.handbrake;
       } else if (pred.remote(i, now, this.rs)) {
         const r = this.rs, d = r.d;
         o.x = r.px; o.y = r.py; o.z = r.pz;
@@ -165,7 +165,7 @@ export class OnlineGame {
         o.demolished = (d.flags & F_DEMOLISHED) !== 0; o.onGround = (d.flags & F_ONGROUND) !== 0;
         o.fx = 1 - 2 * (r.qy * r.qy + r.qz * r.qz); o.fy = 2 * (r.qx * r.qy + r.qw * r.qz); o.fz = 2 * (r.qx * r.qz - r.qw * r.qy);
         o.nx = 2 * (r.qx * r.qz + r.qw * r.qy); o.ny = 2 * (r.qy * r.qz - r.qw * r.qx); o.nz = 1 - 2 * (r.qx * r.qx + r.qy * r.qy);
-        o.steer = 0; o.throttle = o.boosting ? 1 : 0;
+        o.steer = 0; o.throttle = o.boosting ? 1 : 0; o.handbrake = false;
       }
     }
     const b = sim.ball, sb = s.ball;
