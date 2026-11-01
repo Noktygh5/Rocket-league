@@ -8,3 +8,4 @@ export * from './math/scalar';
 export * as arena from './arena';
 export * from './ball';
 export * from './car';
+export * from './collide';

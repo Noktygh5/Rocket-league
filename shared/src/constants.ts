@@ -18,9 +18,11 @@ export const CAR = {
   /** Hitbox centre offset from the body origin. */
   hitboxOffset: { x: 13.8757, y: 0, z: 20.755 },
   mass: 180,
-  /** Resting centre-of-mass (hitbox centre) height above the floor. */
-  restHeight: 17.01,
+  /** Resting hitbox-centre (= centre of mass) height above the floor; body origin rests at 17.01. */
+  restHeight: 37.77,
   maxAngularSpeed: 5.5,
+  /** Angular speed cap while wheels are on a surface (needed to follow the 256 uu ramps at speed). */
+  maxAngularSpeedGround: 14,
   maxSpeed: 2300,
   supersonicOn: 2200,
   supersonicOff: 2100,
@@ -139,6 +141,9 @@ export const BALL = {
   friction: 0.35,
 
   carHit: {
+    /** Restitution of the plain rigid-body part of a car hit (extra impulse adds the rest). */
+    restitution: 0,
+    friction: 0.2,
     /** Extra impulse scale by relative speed (uu/s). */
     extraImpulseCurve: [0, 0.65, 500, 0.65, 2300, 0.55, 4600, 0.3],
     /** Multiplier on contact-normal Z when forming the extra-impulse direction. */

@@ -459,7 +459,7 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
 
   // ---- limits + integration -------------------------------------------------------------------
   vec3.clampLength(c.vel, c.vel, CAR.maxSpeed);
-  vec3.clampLength(c.angVel, c.angVel, CAR.maxAngularSpeed);
+  vec3.clampLength(c.angVel, c.angVel, c.onGround || contacts > 0 ? CAR.maxAngularSpeedGround : CAR.maxAngularSpeed);
   c.pos.x += c.vel.x * dt; c.pos.y += c.vel.y * dt; c.pos.z += c.vel.z * dt;
   quat.integrate(c.rot, c.rot, c.angVel.x, c.angVel.y, c.angVel.z, dt);
   mat3.fromQuat(c.basis, c.rot);
