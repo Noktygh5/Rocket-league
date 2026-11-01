@@ -35,6 +35,8 @@ export class ChaseCamera {
   private fovExtra = 0;
   private shake = 0;
   private initialised = false;
+  private groundW = 1;
+  private upTarget = new Vec3(0, 0, 1);
   aspect = 16 / 9;
 
   addShake(v: number): void {
@@ -49,10 +51,13 @@ export class ChaseCamera {
   update(dt: number, t: CamTarget, out: CamPose): CamPose {
     const s = settings.camera;
     // camera up: follow the surface while driving, return to world up in the air
-    const upT = t.onGround ? t.surfaceNormal : WORLD_UP;
-    const k = 1 - Math.exp(-(t.onGround ? 7 : 4) * dt);
-    vec3.lerp(this.up, this.up, upT, k);
-    vec3.normalize(this.up, this.up);
+    // A smoothed 0..1 "on a surface" weight stops wheel-contact flicker from jerking the horizon.
+    this.groundW += ((t.onGround ? 1 : 0) - this.groundW) * (1 - Math.exp(-(t.onGround ? 5 : 2.2) * dt));
+    // Tilt only part of the way toward the surface normal so wall rides stay readable.
+    const surf = Math.acos(Math.max(-1, Math.min(1, vec3.dot(WORLD_UP, t.surfaceNormal))));
+    const frac = surf > 1e-3 ? Math.min(1, MAX_TILT / surf) : 0;
+    slerpUnit(this.upTarget, WORLD_UP, t.surfaceNormal, frac * this.groundW, this.dir);
+    slerpUnit(this.up, this.up, this.upTarget, 1 - Math.exp(-3.5 * dt), this.dir);
 
     // car heading flattened onto the camera plane
     const f = flatten(tmpA, t.carFwd, this.up);
@@ -158,5 +163,30 @@ const WORLD_UP = new Vec3(0, 0, 1);
 function flatten(out: Vec3, v: Vec3, n: Vec3): Vec3 {
   const d = vec3.dot(v, n);
   out.x = v.x - n.x * d; out.y = v.y - n.y * d; out.z = v.z - n.z * d;
+  return vec3.normalize(out, out);
+}
+
+/** The camera horizon never tilts more than this far from upright, even on walls and ceilings. */
+const MAX_TILT = (65 * Math.PI) / 180;
+
+/** Spherical interpolation between unit vectors; `hint` supplies a rotation axis when they are opposite. */
+function slerpUnit(out: Vec3, a: Vec3, b: Vec3, t: number, hint: Vec3): Vec3 {
+  let d = vec3.dot(a, b);
+  d = Math.max(-1, Math.min(1, d));
+  const ang = Math.acos(d);
+  if (ang < 1e-4 || t <= 0) return t >= 1 ? vec3.copy(out, b) : vec3.copy(out, a);
+  const ax = a.x, ay = a.y, az = a.z;
+  if (Math.PI - ang < 1e-3) {
+    // opposite vectors: rotate about the heading axis
+    const axis = vec3.cross(vec3.create(), a, hint);
+    if (vec3.lengthSq(axis) < 1e-6) vec3.set(axis, 1, 0, 0);
+    vec3.normalize(axis, axis);
+    const th = Math.PI * t, c = Math.cos(th), s = Math.sin(th);
+    const cr = vec3.cross(vec3.create(), axis, a);
+    out.x = ax * c + cr.x * s; out.y = ay * c + cr.y * s; out.z = az * c + cr.z * s;
+    return vec3.normalize(out, out);
+  }
+  const s0 = Math.sin((1 - t) * ang) / Math.sin(ang), s1 = Math.sin(t * ang) / Math.sin(ang);
+  out.x = ax * s0 + b.x * s1; out.y = ay * s0 + b.y * s1; out.z = az * s0 + b.z * s1;
   return vec3.normalize(out, out);
 }

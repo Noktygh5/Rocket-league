@@ -58,3 +58,14 @@ Ambiguities resolved by picking the option closest to the reference game. Newest
 
 ### Tooling
 - `TUNING.md` is generated from `constants.ts` so it cannot drift; the in-game dev panel (F2 or `?dev`) edits the same objects live.
+
+## Round 2: fixes after playtesting, using the reference gameplay video
+
+Findings from the video (a 1v1 match, ~7 min): open-air stadium with a sunset sky and no visible ceiling; striped grass with white lines and orange hexagonal pads; a solid, team-coloured lower wall with a see-through wire cage above it; chunky car with a ring marker under the player's car; large orange boost flame; two white light trails at supersonic; a low chase camera that tilts with the car on walls; flips that complete a full rotation and land on the wheels in under ~1.2 s.
+
+- **Stuck upside down (fixed):** the hitbox now reports contact with the arena. A car resting on its roof regains its jump and flip, and pressing jump pushes it off the surface (1.6x a normal jump) so it can air-roll (Q/E) back onto its wheels. Tests cover jump + roll recovery and roll-only recovery.
+- **Flip rotation (fixed):** flips were capped at 5.5 rad/s and damped hard, so they stopped mid-turn and the car landed on its side or back. Flips now allow 8.5 rad/s, apply torque for 0.5 s, then coast with `CAR.flip.rotationDamping` = 3.5. Measured with a tuning sweep: upside-down at ~0.5 s, back on the wheels by ~1.1 s, for front, back, left and right flips (tests added for all four).
+- **Wheel spin (fixed):** the model spun the tyre around the wrong axis. Wheels are now steer-group > spin-group > tyre with five visible spokes; spin is about the axle and direction follows rolling-without-slip; front wheels steer correctly.
+- **Wall camera tilt (fixed):** the camera "up" was snapping between the surface normal and world-up as wheel contact flickered, and a straight lerp collapses on the ceiling. It now uses a smoothed on-surface weight (with hysteresis), spherical interpolation, and never tilts more than 65 degrees from upright. Sampled wall climb: max change 14 degrees per 100 ms (was 57), horizon never inverted.
+- **Look:** open sky dome, no rendered ceiling, striped grass, team-coloured solid lower walls with a wire cage above, floodlight towers, hills, bigger stands, orange hex pads, dark gunmetal ball with cyan glow, white supersonic ribbons, bigger boost flame, ring marker under the local car. All art remains original and procedural.
+- **Bots:** the physics changes shifted the ladder, so bots now slow their approach when misaligned. Current 50-match ladder (120 s matches): Medium beats Easy 20-11, Hard beats Medium 22-11, Hard beats Easy 28-6.

@@ -220,3 +220,50 @@ describe('air control', () => {
     expect(50 - c.boost).toBeLessThan(4.5);
   });
 });
+
+describe('flip completes and roof recovery', () => {
+  const upZ = (c: CarState) => c.basis.m[8];
+  for (const [name, px, yw] of [['front', 1, 0], ['back', -1, 0], ['left', 0, -1], ['right', 0, 1]] as [string, number, number][]) {
+    it(`a ${name} flip finishes upright (one full rotation, wheels down)`, () => {
+      const c = airCar(1900);
+      stepCar(c, inputOf({}), dt);
+      stepCar(c, inputOf({ jump: true, pitch: px, yaw: yw }), dt);
+      let sawInverted = false;
+      for (let i = 0; i < 120 * 1.6; i++) {
+        stepCar(c, inputOf({}), dt);
+        if (upZ(c) < -0.7) sawInverted = true;
+      }
+      expect(sawInverted).toBe(true);
+      expect(upZ(c)).toBeGreaterThan(0.9);
+    });
+  }
+
+  it('a car lying on its roof can jump and roll back onto its wheels', () => {
+    const c = new CarState();
+    placeCar(c, 0, 0, Math.PI / 2);
+    // flip upside down: roll 180 degrees about the forward axis
+    c.rot.x = 1; c.rot.y = 0; c.rot.z = 0; c.rot.w = 0;
+    c.pos.z = 30;
+    c.onGround = false; c.wheelContacts = 0;
+    for (let i = 0; i < 120; i++) stepCar(c, inputOf({}), dt); // settle on the roof
+    expect(upZ(c)).toBeLessThan(-0.9);
+    expect(c.roofRest).toBe(true);
+    // jump off the roof, then air-roll back onto the wheels
+    stepCar(c, inputOf({ jump: true }), dt);
+    for (let i = 0; i < 200 && upZ(c) < 0.0; i++) stepCar(c, inputOf({ roll: 1 }), dt);
+    expect(c.vel.z).toBeLessThan(400);
+    for (let i = 0; i < 120 * 3; i++) stepCar(c, inputOf({}), dt);
+    expect(upZ(c)).toBeGreaterThan(0.9);
+    expect(c.onGround).toBe(true);
+  });
+
+  it('air roll alone can also right a car on its roof', () => {
+    const c = new CarState();
+    placeCar(c, 0, 0, Math.PI / 2);
+    c.rot.x = 1; c.rot.y = 0; c.rot.z = 0; c.rot.w = 0;
+    c.pos.z = 30;
+    for (let i = 0; i < 60; i++) stepCar(c, inputOf({}), dt);
+    for (let i = 0; i < 120 * 3; i++) stepCar(c, inputOf({ roll: 1 }), dt);
+    expect(upZ(c)).toBeGreaterThan(0.5);
+  });
+});

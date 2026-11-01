@@ -36,17 +36,19 @@ const BLUE = new THREE.Color(0x3d8bff), ORANGE = new THREE.Color(0xff9a3d);
 function ballTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas'); c.width = 512; c.height = 256;
   const g = c.getContext('2d')!;
-  g.fillStyle = '#e9eef7'; g.fillRect(0, 0, 512, 256);
-  g.strokeStyle = '#6f86a8'; g.lineWidth = 3;
-  const r = 28;
+  g.fillStyle = '#1d232d'; g.fillRect(0, 0, 512, 256);
+  g.strokeStyle = '#3fd6ff'; g.lineWidth = 3;
+  g.shadowColor = '#3fd6ff'; g.shadowBlur = 6;
+  const r = 30;
   for (let row = -1; row < 10; row++) for (let col = -1; col < 20; col++) {
     const cx = col * r * 1.75 + (row & 1 ? r * 0.87 : 0), cy = row * r * 1.5;
     g.beginPath();
     for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + (k * Math.PI) / 3; g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
     g.closePath(); g.stroke();
   }
-  g.fillStyle = 'rgba(90,150,255,0.25)';
-  for (let i = 0; i < 18; i++) g.fillRect(i * 32, 0, 14, 256);
+  g.shadowBlur = 0;
+  g.fillStyle = 'rgba(80,90,105,0.35)';
+  for (let i = 0; i < 60; i++) g.fillRect(Math.random() * 512, Math.random() * 256, 30, 2);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
@@ -73,6 +75,7 @@ export class World {
   private padState: number[] = [];
   private shadowFloor: THREE.Mesh;
   private clock = 0;
+  private ring: THREE.Mesh;
   private tmpV = new THREE.Vector3();
 
   constructor(private canvas: HTMLCanvasElement, quality: Quality) {
@@ -82,8 +85,8 @@ export class World {
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 5, 60000);
     this.scene.add(this.particles.points);
 
-    this.scene.add(new THREE.HemisphereLight(0xbcd2ff, 0x1a2030, 1.6));
-    this.sun = new THREE.DirectionalLight(0xffffff, 2.4);
+    this.scene.add(new THREE.HemisphereLight(0xffc7a0, 0x2a3a22, 1.7));
+    this.sun = new THREE.DirectionalLight(0xffe2c0, 2.5);
     this.sun.position.set(400, 1800, 300);
     this.sun.castShadow = true;
     this.sun.shadow.camera.left = -1400; this.sun.shadow.camera.right = 1400;
@@ -92,7 +95,7 @@ export class World {
     this.sun.shadow.bias = -0.0005;
     this.scene.add(this.sun, this.sun.target);
 
-    const ballMat = new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.35, metalness: 0.1, emissive: 0x335577, emissiveIntensity: 0.55 });
+    const ballMat = new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.4, metalness: 0.55, emissive: 0x1a6a88, emissiveIntensity: 0.9, emissiveMap: undefined });
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 28, 20), ballMat);
     this.ball.castShadow = true;
     this.scene.add(this.ball);
@@ -100,7 +103,7 @@ export class World {
       const c = document.createElement('canvas'); c.width = c.height = 64;
       const g = c.getContext('2d')!;
       const gr = g.createRadialGradient(32, 32, 8, 32, 32, 32);
-      gr.addColorStop(0, 'rgba(160,200,255,0.5)'); gr.addColorStop(1, 'rgba(160,200,255,0)');
+      gr.addColorStop(0, 'rgba(90,210,255,0.45)'); gr.addColorStop(1, 'rgba(90,210,255,0)');
       g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
       return new THREE.CanvasTexture(c);
     })();
@@ -111,6 +114,9 @@ export class World {
     this.shadowFloor.rotation.x = -Math.PI / 2; this.shadowFloor.position.y = 1.5; this.shadowFloor.receiveShadow = true;
     this.scene.add(this.shadowFloor);
 
+    this.ring = new THREE.Mesh(new THREE.RingGeometry(60, 68, 56), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    this.ring.rotation.x = -Math.PI / 2;
+    this.scene.add(this.ring);
     this.buildArena();
     this.applyQuality(quality);
     this.resize();
@@ -214,6 +220,8 @@ export class World {
     }
     // shadow light follows the focus car
     const fc = f.cars[f.focus] ?? f.cars[0];
+    this.ring.visible = !!fc && !fc.demolished && fc.z < 140;
+    if (fc) { this.ring.position.set(fc.x, 3.5, -fc.y); (this.ring.material as THREE.MeshBasicMaterial).color.set(fc.team === 0 ? 0x9cc4ff : 0xffc08a); }
     if (fc) {
       this.sun.target.position.set(fc.x, 0, -fc.y);
       this.sun.position.set(fc.x + 400, 1800, -fc.y + 300);

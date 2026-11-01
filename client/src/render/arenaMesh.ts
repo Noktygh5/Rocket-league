@@ -3,6 +3,8 @@ import { ARENA, PADS, mirrorPads } from '@turboball/shared';
 
 const BLUE = new THREE.Color(0x1f7bff);
 const ORANGE = new THREE.Color(0xff8a1f);
+const BLUE_WALL = new THREE.Color(0x3a6fe0);
+const ORANGE_WALL = new THREE.Color(0xe8863a);
 const W = ARENA.halfWidth, L = ARENA.halfLength, H = ARENA.ceilingHeight;
 const R = ARENA.rampRadius, RC = ARENA.cornerRadius;
 const GW = ARENA.goal.halfWidth, GH = ARENA.goal.height, GD = ARENA.goal.backY;
@@ -84,59 +86,69 @@ function floorTexture(): THREE.CanvasTexture {
   return canvasTex(w, h, (g) => {
     const px = (x: number) => ((x + W) / (2 * W)) * w;
     const py = (y: number) => ((L - y) / (2 * L)) * h; // +y (orange) at the top
-    g.fillStyle = '#16303a';
+    g.fillStyle = '#2c6a2b';
     g.fillRect(0, 0, w, h);
-    // checker
-    const cell = 256 / (2 * W) * w;
-    for (let i = 0; i < w / cell; i++) for (let j = 0; j < h / cell; j++) {
-      if ((i + j) & 1) { g.fillStyle = 'rgba(255,255,255,0.035)'; g.fillRect(i * cell, j * cell, cell, cell); }
+    const stripe = (640 / (2 * L)) * h;
+    for (let i = 0; i * stripe < h; i++) {
+      if (i & 1) { g.fillStyle = 'rgba(190,255,150,0.10)'; g.fillRect(0, i * stripe, w, stripe); }
     }
-    // team tint, stronger toward each goal
-    const gb = g.createLinearGradient(0, h, 0, h / 2);
-    gb.addColorStop(0, 'rgba(31,123,255,0.42)'); gb.addColorStop(1, 'rgba(31,123,255,0)');
-    g.fillStyle = gb; g.fillRect(0, h / 2, w, h / 2);
-    const go = g.createLinearGradient(0, 0, 0, h / 2);
-    go.addColorStop(0, 'rgba(255,138,31,0.42)'); go.addColorStop(1, 'rgba(255,138,31,0)');
-    g.fillStyle = go; g.fillRect(0, 0, w, h / 2);
-    g.lineWidth = 3;
-    g.strokeStyle = 'rgba(220,240,255,0.75)';
-    g.shadowColor = 'rgba(160,220,255,0.9)'; g.shadowBlur = 6;
-    // midfield line + circle
+    for (let i = 0; i < 9000; i++) {
+      g.fillStyle = Math.random() < 0.5 ? 'rgba(10,40,10,0.10)' : 'rgba(200,255,160,0.07)';
+      g.fillRect(Math.random() * w, Math.random() * h, 2 + Math.random() * 3, 1);
+    }
+    const ge = g.createLinearGradient(0, 0, 0, h);
+    ge.addColorStop(0, 'rgba(0,0,0,0.30)'); ge.addColorStop(0.18, 'rgba(0,0,0,0)'); ge.addColorStop(0.82, 'rgba(0,0,0,0)'); ge.addColorStop(1, 'rgba(0,0,0,0.30)');
+    g.fillStyle = ge; g.fillRect(0, 0, w, h);
+    g.lineWidth = 4; g.strokeStyle = 'rgba(235,245,235,0.85)';
     g.beginPath(); g.moveTo(0, py(0)); g.lineTo(w, py(0)); g.stroke();
     g.beginPath(); g.arc(px(0), py(0), (1000 / (2 * W)) * w, 0, Math.PI * 2); g.stroke();
-    g.fillStyle = 'rgba(220,240,255,0.9)';
+    g.fillStyle = 'rgba(235,245,235,0.9)';
     g.beginPath(); g.arc(px(0), py(0), 6, 0, Math.PI * 2); g.fill();
-    // goal boxes
     for (const s of [-1, 1]) {
-      g.strokeStyle = s < 0 ? 'rgba(80,160,255,0.9)' : 'rgba(255,160,70,0.9)';
+      g.strokeStyle = s < 0 ? 'rgba(130,180,255,0.9)' : 'rgba(255,190,120,0.9)';
       g.beginPath();
       g.rect(px(-1500), py(s * L), (3000 / (2 * W)) * w, (1500 / (2 * L)) * h * (s < 0 ? -1 : 1));
       g.stroke();
       g.beginPath(); g.arc(px(0), py(s * 2800), (700 / (2 * W)) * w, 0, Math.PI * 2); g.stroke();
     }
+    g.strokeStyle = 'rgba(235,245,235,0.55)'; g.setLineDash([22, 18]); g.lineWidth = 3;
+    for (const y of [-2560, 2560]) { g.beginPath(); g.moveTo(px(-W), py(y)); g.lineTo(px(W), py(y)); g.stroke(); }
+    g.setLineDash([]);
   });
 }
 
 function wallTexture(): THREE.CanvasTexture {
   return canvasTex(256, 256, (g) => {
-    g.fillStyle = '#9fb2c6'; g.fillRect(0, 0, 256, 256);
-    g.fillStyle = 'rgba(0,0,0,0.18)'; g.fillRect(0, 0, 256, 6); g.fillRect(0, 0, 4, 256);
-    g.fillStyle = 'rgba(255,255,255,0.3)'; g.fillRect(4, 6, 2, 250);
-    g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2;
-    g.strokeRect(34, 34, 188, 188);
+    g.fillStyle = '#c9ced8'; g.fillRect(0, 0, 256, 256);
+    for (let i = 0; i < 40; i++) {
+      g.fillStyle = `rgba(0,0,0,${0.03 + Math.random() * 0.06})`;
+      g.fillRect(0, Math.random() * 256, 256, 2 + Math.random() * 6);
+    }
+    g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(0, 0, 256, 5); g.fillRect(0, 0, 4, 256);
+    g.fillStyle = 'rgba(255,255,255,0.28)'; g.fillRect(5, 5, 2, 251);
+    g.strokeStyle = 'rgba(255,255,255,0.4)'; g.lineWidth = 3;
+    g.strokeRect(30, 30, 196, 196);
   }, true);
 }
 
-function ceilingTexture(): THREE.CanvasTexture {
-  return canvasTex(512, 640, (g) => {
-    g.fillStyle = '#11151f'; g.fillRect(0, 0, 512, 640);
-    g.fillStyle = '#9cc4ff';
-    for (let i = 0; i < 6; i++) for (let j = 0; j < 8; j++) {
-      g.globalAlpha = 0.42;
-      g.fillRect(i * 85 + 12, j * 80 + 14, 62, 52);
-    }
-    g.globalAlpha = 0.5; g.fillStyle = '#7fb6ff';
-    for (let j = 0; j < 8; j++) g.fillRect(0, j * 80 + 70, 512, 3);
+function fenceTexture(): THREE.CanvasTexture {
+  return canvasTex(128, 128, (g) => {
+    g.clearRect(0, 0, 128, 128);
+    g.strokeStyle = 'rgba(205,215,230,0.62)'; g.lineWidth = 1.3;
+    g.beginPath();
+    for (let i = -128; i < 256; i += 32) { g.moveTo(i, 0); g.lineTo(i + 128, 128); g.moveTo(i + 128, 0); g.lineTo(i, 128); }
+    g.stroke();
+    g.strokeStyle = 'rgba(120,130,150,0.8)'; g.lineWidth = 2;
+    g.strokeRect(0, 0, 128, 128);
+  }, true);
+}
+
+function skyTexture(): THREE.CanvasTexture {
+  return canvasTex(16, 512, (g) => {
+    const gr = g.createLinearGradient(0, 0, 0, 512);
+    gr.addColorStop(0.00, '#1b2554'); gr.addColorStop(0.30, '#4a4a92'); gr.addColorStop(0.46, '#c76f86');
+    gr.addColorStop(0.50, '#ffb36e'); gr.addColorStop(0.53, '#ffcf93'); gr.addColorStop(0.56, '#3a3320'); gr.addColorStop(1.00, '#161a12');
+    g.fillStyle = gr; g.fillRect(0, 0, 16, 512);
   });
 }
 
@@ -166,7 +178,8 @@ export function buildArena(low: boolean): ArenaView {
   const nOut = out.length, nProf = prof.length;
 
   // ---- wall/ramp ring -----------------------------------------------------------------------------
-  const pos: number[] = [], nor: number[] = [], uv: number[] = [], col: number[] = [], idx: number[] = [];
+  const pos: number[] = [], nor: number[] = [], uv: number[] = [], col: number[] = [];
+  const idxLow: number[] = [], idxFence: number[] = [];
   let run = 0;
   const arcLen: number[] = [0];
   for (let i = 1; i <= nOut; i++) {
@@ -176,42 +189,50 @@ export function buildArena(low: boolean): ArenaView {
   }
   const pLen: number[] = [0];
   for (let j = 1; j < nProf; j++) pLen.push(pLen[j - 1] + Math.hypot(prof[j].d - prof[j - 1].d, prof[j].z - prof[j - 1].z));
+  // the solid lower wall ends where the wire cage begins
+  let jSplit = prof.findIndex((p) => p.d === 0 && p.z >= 399);
+  if (jSplit < 0) jSplit = 1;
   const tmpC = new THREE.Color();
   for (let i = 0; i <= nOut; i++) {
     const o = out[i % nOut];
-    for (const p of prof) {
+    for (let j = 0; j < nProf; j++) {
+      const p = prof[j];
       const x = o.x + o.nx * p.d, y = o.y + o.ny * p.d;
       pos.push(x, p.z, -y);
       nor.push(o.nx * p.nd, p.nz, -o.ny * p.nd);
-      uv.push(arcLen[i] / 512, pLen[prof.indexOf(p)] / 512);
-      // team tint by half, brighter low, darker toward the ceiling, glow near the ramps
-      const tint = THREE.MathUtils.clamp(Math.abs(y) / L, 0, 1);
-      tmpC.copy(y < 0 ? BLUE : ORANGE).multiplyScalar(0.35 + 0.65 * tint).add(new THREE.Color(0.55, 0.62, 0.7));
-      const shade = THREE.MathUtils.lerp(1.0, 0.38, THREE.MathUtils.clamp(p.z / H, 0, 1));
+      uv.push(arcLen[i] / 512, pLen[j] / 512);
+      tmpC.copy(y < 0 ? BLUE_WALL : ORANGE_WALL);
+      const shade = p.z < 420 ? THREE.MathUtils.lerp(1.05, 0.7, p.z / 420) : 1;
       col.push(tmpC.r * shade, tmpC.g * shade, tmpC.b * shade);
     }
   }
   for (let i = 0; i < nOut; i++) {
     for (let j = 0; j < nProf - 1; j++) {
       const a = i * nProf + j, b = (i + 1) * nProf + j, c = (i + 1) * nProf + j + 1, d = i * nProf + j + 1;
-      // skip quads inside the goal opening on either back wall
       const mx = (pos[a * 3] + pos[c * 3]) / 2, mz = (pos[a * 3 + 1] + pos[c * 3 + 1]) / 2;
       const my = -(pos[a * 3 + 2] + pos[c * 3 + 2]) / 2;
       if (Math.abs(my) > L - 60 && Math.abs(mx) < GW + 0.5 && mz < GH + 0.5) continue;
-      idx.push(a, b, c, a, c, d);
+      (j < jSplit ? idxLow : idxFence).push(a, b, c, a, c, d);
     }
   }
-  const wallGeo = new THREE.BufferGeometry();
-  wallGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  wallGeo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
-  wallGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  wallGeo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
-  wallGeo.setIndex(idx);
-  const wall = new THREE.Mesh(wallGeo, new THREE.MeshBasicMaterial({ map: wallTexture(), vertexColors: true, side: THREE.DoubleSide }));
-  group.add(wall);
+  const mkGeo = (index: number[]): THREE.BufferGeometry => {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    g.setIndex(index);
+    return g;
+  };
+  group.add(new THREE.Mesh(mkGeo(idxLow), new THREE.MeshBasicMaterial({ map: wallTexture(), vertexColors: true, side: THREE.DoubleSide })));
+  const fenceTex = fenceTexture();
+  fenceTex.repeat.set(1 / 1.0, 1 / 1.0);
+  const fenceMesh = new THREE.Mesh(mkGeo(idxFence), new THREE.MeshBasicMaterial({ map: fenceTex, transparent: true, side: THREE.DoubleSide, depthWrite: false, color: 0xe6edf8 }));
+  fenceMesh.renderOrder = 2;
+  group.add(fenceMesh);
 
-  // ---- floor and ceiling fans ---------------------------------------------------------------------
-  const fanGeo = (z: number, withUv: boolean): THREE.BufferGeometry => {
+  // ---- floor (open sky above: no ceiling is drawn) ---------------------------------------------------
+  const fanGeo = (z: number): THREE.BufferGeometry => {
     const p: number[] = [0, z, 0], u: number[] = [0.5, 0.5], ix: number[] = [];
     for (const o of out) {
       const x = o.x + o.nx * R, y = o.y + o.ny * R;
@@ -221,15 +242,13 @@ export function buildArena(low: boolean): ArenaView {
     for (let i = 1; i <= out.length; i++) ix.push(0, i, (i % out.length) + 1);
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(p, 3));
-    if (withUv) g.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(u, 2));
     g.setIndex(ix);
     g.computeVertexNormals();
     return g;
   };
-  const floor = new THREE.Mesh(fanGeo(0, true), new THREE.MeshBasicMaterial({ map: floorTexture(), side: THREE.DoubleSide }));
+  const floor = new THREE.Mesh(fanGeo(0), new THREE.MeshBasicMaterial({ map: floorTexture(), side: THREE.DoubleSide }));
   group.add(floor);
-  const ceil = new THREE.Mesh(fanGeo(H, true), new THREE.MeshBasicMaterial({ map: ceilingTexture(), side: THREE.DoubleSide }));
-  group.add(ceil);
 
   // ---- goals ---------------------------------------------------------------------------------------
   const netTex = netTexture();
@@ -277,19 +296,34 @@ export function buildArena(low: boolean): ArenaView {
     group.add(g);
   }
 
-  // ---- ceiling light bars, stands, backdrop --------------------------------------------------------
-  const glowMat = new THREE.MeshBasicMaterial({ color: 0xcfe6ff });
-  const bars = new THREE.InstancedMesh(new THREE.BoxGeometry(5200, 6, 60), glowMat, 7);
+  // ---- sky, ground, hills, floodlights ---------------------------------------------------------------
+  const sky = new THREE.Mesh(new THREE.SphereGeometry(30000, 24, 16), new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, fog: false, depthWrite: false }));
+  sky.renderOrder = -10;
+  group.add(sky);
   const m4 = new THREE.Matrix4();
-  for (let i = 0; i < 7; i++) { m4.makeTranslation(0, H - 4, -(-L + 700 + i * ((2 * L - 1400) / 6))); bars.setMatrixAt(i, m4); }
-  group.add(bars);
-
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), new THREE.MeshBasicMaterial({ color: 0x06080d }));
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000), new THREE.MeshBasicMaterial({ color: 0x3b5a2d }));
   back.rotation.x = -Math.PI / 2; back.position.y = -30;
   group.add(back);
+  const hillMat = new THREE.MeshBasicMaterial({ color: 0x2a3d22 });
+  for (let i = 0; i < 14; i++) {
+    const ang = (i / 14) * Math.PI * 2 + 0.3, rad = 15000 + (i % 3) * 2500;
+    const hill = new THREE.Mesh(new THREE.ConeGeometry(2600 + (i % 4) * 700, 1500 + (i % 5) * 400, 7), hillMat);
+    hill.position.set(Math.cos(ang) * rad, 450, Math.sin(ang) * rad);
+    group.add(hill);
+  }
+  const towerMat = new THREE.MeshBasicMaterial({ color: 0x2a2f3a });
+  const lampMat = new THREE.MeshBasicMaterial({ color: 0xfff3d0 });
+  for (const [tx, ty] of [[-1, -0.6], [1, -0.6], [-1, 0.6], [1, 0.6], [-1, 0], [1, 0]] as [number, number][]) {
+    const x = tx * (W + 1100), y = ty * L;
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(35, 55, 2600, 6), towerMat);
+    pole.position.set(x, 1300, -y);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(520, 300, 90), lampMat);
+    head.position.set(x, 2700, -y); head.rotation.y = tx > 0 ? Math.PI / 2 : -Math.PI / 2;
+    group.add(pole, head);
+  }
 
   const rows = low ? 2 : 4;
-  const crowdGeo = new THREE.BoxGeometry(60, 80, 60);
+  const crowdGeo = new THREE.BoxGeometry(80, 110, 80);
   const sideN = Math.floor((2 * L) / 110) * rows;
   const endN = Math.floor((2 * W) / 110) * rows;
   const crowd = new THREE.InstancedMesh(crowdGeo, new THREE.MeshBasicMaterial({ color: 0xffffff }), sideN * 2 + endN * 2);
@@ -306,7 +340,7 @@ export function buildArena(low: boolean): ArenaView {
     crowd.setColorAt(ci++, cc);
   };
   for (let r = 0; r < rows; r++) {
-    const y = 140 + r * 230, off = W + 650 + r * 330;
+    const y = 220 + r * 280, off = W + 480 + r * 340;
     for (const sx of [-1, 1]) {
       for (let k = 0; k < Math.floor((2 * L) / 110); k++) {
         const yy = -L + 60 + k * 110;
@@ -328,11 +362,11 @@ export function buildArena(low: boolean): ArenaView {
 
   // ---- boost pads -----------------------------------------------------------------------------------
   const largeSpots = mirrorPads(PADS.largeBase), smallSpots = mirrorPads(PADS.smallBase);
-  const smallPads = new THREE.InstancedMesh(new THREE.CylinderGeometry(70, 70, 8, 16), new THREE.MeshBasicMaterial({ color: 0xffffff }), smallSpots.length);
+  const smallPads = new THREE.InstancedMesh(new THREE.CylinderGeometry(70, 70, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }), smallSpots.length);
   const largePads = new THREE.InstancedMesh(new THREE.CylinderGeometry(150, 150, 12, 6), new THREE.MeshBasicMaterial({ color: 0xffffff }), largeSpots.length);
   const padIndex: { large: boolean; i: number }[] = [];
-  largeSpots.forEach((p, i) => { m4.makeTranslation(p.x, 6, -p.y); largePads.setMatrixAt(i, m4); largePads.setColorAt(i, cc.set(0xffc233)); padIndex.push({ large: true, i }); });
-  smallSpots.forEach((p, i) => { m4.makeTranslation(p.x, 4, -p.y); smallPads.setMatrixAt(i, m4); smallPads.setColorAt(i, cc.set(0xffc233)); padIndex.push({ large: false, i }); });
+  largeSpots.forEach((p, i) => { m4.makeTranslation(p.x, 6, -p.y); largePads.setMatrixAt(i, m4); largePads.setColorAt(i, cc.set(0xffa21f)); padIndex.push({ large: true, i }); });
+  smallSpots.forEach((p, i) => { m4.makeTranslation(p.x, 4, -p.y); smallPads.setMatrixAt(i, m4); smallPads.setColorAt(i, cc.set(0xffa21f)); padIndex.push({ large: false, i }); });
   group.add(smallPads, largePads);
 
   const pc = new THREE.Color();
@@ -342,7 +376,7 @@ export function buildArena(low: boolean): ArenaView {
       const e = padIndex[idx];
       const mesh = e.large ? largePads : smallPads;
       const k = active ? 1 : 0.12 + 0.3 * t01;
-      pc.setRGB(1.0 * k, 0.76 * k, 0.2 * k);
+      pc.setRGB(1.0 * k, 0.6 * k, 0.12 * k);
       mesh.setColorAt(e.i, pc);
       if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     },

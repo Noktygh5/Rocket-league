@@ -42,7 +42,7 @@ export const BOT_CONFIGS: Record<BotLevel, BotConfig> = {
     recover: 1.3, boostPads: false, boostSkill: 0, demos: false, shotPlacement: false, smartDefense: false, kickoffFlip: false,
   },
   medium: {
-    reaction: 0.18, horizon: 2.5, speedFactor: 0.8, aerials: 1, dodgeChance: 0.6, steerNoise: 0.08, mistime: 0.15,
+    reaction: 0.15, horizon: 2.5, speedFactor: 0.92, aerials: 1, dodgeChance: 0.8, steerNoise: 0.05, mistime: 0.1,
     recover: 0.3, boostPads: true, boostSkill: 1, demos: false, shotPlacement: false, smartDefense: false, kickoffFlip: true,
   },
   hard: {
@@ -394,7 +394,9 @@ export class Bot {
     out.steer = clamp(out.steer, -1, 1);
     out.yaw = out.steer;
 
-    const wantSpeed = this.targetSpeed;
+    let wantSpeed = this.targetSpeed;
+    // approach control: slow down when the target is off to the side and close, commit when lined up
+    if (this.mode !== Mode.Kickoff && abs > 0.45 && dist < 1600) wantSpeed = Math.min(wantSpeed, 450 + dist * 0.9);
     if (abs > 2.3 && fwdSpeed < 300 && dist < 1800) {
       // target behind us: back up while turning
       out.throttle = -1; out.steer = -out.steer; out.yaw = out.steer;

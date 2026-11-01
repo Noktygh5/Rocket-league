@@ -71,6 +71,10 @@ export class CarState {
   lastTouchTick = -1;
   /** Wheel contact flags for rendering. */
   wheelHit = [false, false, false, false];
+  /** Hitbox is touching (or within 2 uu of) the arena, e.g. resting on its roof. */
+  roofRest = false;
+  hitboxContact = false;
+  hitboxNormal = new Vec3(0, 0, 1);
 }
 
 export function copyCar(o: CarState, a: CarState): void {
@@ -86,6 +90,7 @@ export function copyCar(o: CarState, a: CarState): void {
   o.flipCancel = a.flipCancel; o.pitchLock = a.pitchLock;
   o.demolished = a.demolished; o.respawnTimer = a.respawnTimer; o.lastTouchTick = a.lastTouchTick;
   for (let i = 0; i < 4; i++) o.wheelHit[i] = a.wheelHit[i];
+  o.hitboxContact = a.hitboxContact; vec3.copy(o.hitboxNormal, a.hitboxNormal);
 }
 
 /** Places a car at rest on the floor facing `yaw` (radians from +X). */
@@ -102,6 +107,7 @@ export function placeCar(c: CarState, x: number, y: number, yaw: number): void {
   c.groundLockout = 0; c.prevJump = false;
   c.flipActive = false; c.flipTimer = 0; c.flipCancel = false; c.pitchLock = 0;
   c.demolished = false; c.respawnTimer = 0;
+  c.hitboxContact = false; vec3.set(c.hitboxNormal, 0, 0, 1);
 }
 
 /** Inertia of the hitbox as a uniform box: [roll(x), pitch(y), yaw(z)]. */
@@ -196,6 +202,8 @@ export function collideCarArena(c: CarState): void {
   const hx = hs.x / 2, hy = hs.y / 2, hz = hs.z / 2;
   const tol = CAR.collision.arenaTolerance;
   const m = c.basis.m;
+  c.hitboxContact = false;
+  let nx = 0, ny = 0, nz = 0;
   for (let iter = 0; iter < 2; iter++) {
     let maxPen = 0;
     let cx = 0, cy = 0, cz = 0;
@@ -214,14 +222,17 @@ export function collideCarArena(c: CarState): void {
       const rz = m[6] * lx + m[7] * ly + m[8] * lz;
       const px = c.pos.x + rx, py = c.pos.y + ry, pz = c.pos.z + rz;
       const pen = -arena.sdf(px, py, pz) - tol;
-      if (pen <= 0) continue;
+      if (pen <= -2) continue;
       arena.normal(nn, px, py, pz);
+      if (iter === 0) { c.hitboxContact = true; nx += nn.x; ny += nn.y; nz += nn.z; }
+      if (pen <= 0) continue;
       surfaceImpulseAt(c, nn, rx, ry, rz);
       if (pen > maxPen) { maxPen = pen; cx = nn.x; cy = nn.y; cz = nn.z; }
     }
     if (maxPen <= 0) break;
     c.pos.x += cx * maxPen; c.pos.y += cy * maxPen; c.pos.z += cz * maxPen;
   }
+  if (c.hitboxContact) { vec3.set(c.hitboxNormal, nx, ny, nz); vec3.normalize(c.hitboxNormal, c.hitboxNormal); }
 }
 
 const rArm = new Vec3();
@@ -288,6 +299,11 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
     c.flipCancel = false; c.pitchLock = 0; c.jumpHeld = false;
   } else {
     c.airTime += dt;
+    // resting on the roof (or any non-wheel surface): jumps and flip come back so the car can recover
+    if (c.hitboxContact && contacts < 3 && vec3.dot(upV, c.hitboxNormal) < -0.4 && c.vel.x * c.vel.x + c.vel.y * c.vel.y + c.vel.z * c.vel.z < 400 * 400) {
+      c.jumped = false; c.flipUsed = false; c.airTime = 0; c.flipActive = false; c.pitchLock = 0; c.jumpHeld = false;
+      c.roofRest = true;
+    } else c.roofRest = false;
   }
 
   // ---- gravity --------------------------------------------------------------------------------
@@ -333,6 +349,13 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
     c.groundLockout = CAR.drive.jumpGroundLockout;
     c.onGround = false; c.wheelContacts = 0; c.airTime = 0;
     contacts = 0;
+  } else if (jumpPressed && c.roofRest) {
+    // jump off the roof: push away from the surface, then a flip is available to roll over
+    justJumped = true;
+    const J = CAR.jump.impulse * CAR.recovery.roofJumpScale;
+    c.vel.x += c.hitboxNormal.x * J; c.vel.y += c.hitboxNormal.y * J; c.vel.z += c.hitboxNormal.z * J;
+    c.jumped = true; c.jumpTimer = 0; c.jumpHeld = false; c.airTime = 0; c.roofRest = false;
+    c.groundLockout = 0.0;
   } else if (c.jumpHeld) {
     if (c.jumpTimer < CAR.jump.holdMaxTime && (inp.jump || c.jumpTimer < CAR.jump.holdMinTime)) {
       const a = CAR.jump.holdAccel * dt;
@@ -438,8 +461,10 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
     const rIn = flipping ? 0 : inp.roll;
     const yIn = inp.yaw !== 0 ? inp.yaw : inp.steer;
 
-    lx += (A.torque.roll * rIn - lx * A.damping.roll) * dt;
-    ly += (A.torque.pitch * pIn - ly * A.damping.pitch * (1 - Math.abs(pIn))) * dt;
+    // after a flip the rotation is allowed to coast so the car completes one full turn
+    const coast = c.flipActive || c.pitchLock > 0;
+    lx += (A.torque.roll * rIn - lx * (coast ? CAR.flip.rotationDamping : A.damping.roll)) * dt;
+    ly += (A.torque.pitch * pIn - ly * (coast ? CAR.flip.rotationDamping : A.damping.pitch * (1 - Math.abs(pIn)))) * dt;
     lz += (-A.torque.yaw * yIn - lz * A.damping.yaw * (1 - Math.abs(yIn))) * dt;
 
     if (flipping) {
@@ -459,7 +484,7 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
 
   // ---- limits + integration -------------------------------------------------------------------
   vec3.clampLength(c.vel, c.vel, CAR.maxSpeed);
-  vec3.clampLength(c.angVel, c.angVel, c.onGround || contacts > 0 ? CAR.maxAngularSpeedGround : CAR.maxAngularSpeed);
+  vec3.clampLength(c.angVel, c.angVel, c.onGround || contacts > 0 ? CAR.maxAngularSpeedGround : c.flipActive || c.pitchLock > 0 ? CAR.flip.maxAngularSpeed : CAR.maxAngularSpeed);
   c.pos.x += c.vel.x * dt; c.pos.y += c.vel.y * dt; c.pos.z += c.vel.z * dt;
   quat.integrate(c.rot, c.rot, c.angVel.x, c.angVel.y, c.angVel.z, dt);
   mat3.fromQuat(c.basis, c.rot);

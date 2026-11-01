@@ -88,7 +88,9 @@ export const CAR = {
     duration: 0.65,
     torquePitch: 224,
     torqueRoll: 260,
-    minTorqueTime: 0.41,
+    minTorqueTime: 0.5,
+    /** Angular speed cap while a flip is rotating (the normal 5.5 cap makes flips far too slow). */
+    maxAngularSpeed: 8.5,
     /** Vertical velocity damping ("flip hang"). */
     zDampFactor: 0.35,
     zDampStart: 0.15,
@@ -100,6 +102,13 @@ export const CAR = {
     deadzone: 0.5,
     /** Opposite pitch input above this magnitude cancels the flip rotation. */
     cancelThreshold: 0.5,
+    /** Pitch/roll damping while a flip coasts (flip + pitch lock). Lower = more rotation after the torque stops. */
+    rotationDamping: 3.5,
+  },
+
+  recovery: {
+    /** Jump strength when resting on the roof, relative to a normal jump. */
+    roofJumpScale: 1.6,
   },
 
   air: {

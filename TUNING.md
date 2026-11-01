@@ -88,7 +88,8 @@ Bot difficulty (reaction time, prediction horizon, aerials, ...) is configured i
 | `CAR.flip.duration` | `0.65` |  |
 | `CAR.flip.torquePitch` | `224` | Front/back flip rotation speed. |
 | `CAR.flip.torqueRoll` | `260` | Side flip rotation speed. |
-| `CAR.flip.minTorqueTime` | `0.41` |  |
+| `CAR.flip.minTorqueTime` | `0.5` |  |
+| `CAR.flip.maxAngularSpeed` | `8.5` | Angular speed cap while a flip is rotating (the normal 5.5 cap makes flips far too slow). |
 | `CAR.flip.zDampFactor` | `0.35` | Vertical velocity damping ("flip hang"). — Flip hang: lower = car hangs in the air more during a flip. |
 | `CAR.flip.zDampStart` | `0.15` |  |
 | `CAR.flip.zDampEnd` | `0.21` |  |
@@ -96,6 +97,8 @@ Bot difficulty (reaction time, prediction horizon, aerials, ...) is configured i
 | `CAR.flip.pitchLockExtra` | `0.1` |  |
 | `CAR.flip.deadzone` | `0.5` | Input magnitude that counts as a directional flip. |
 | `CAR.flip.cancelThreshold` | `0.5` | Opposite pitch input above this magnitude cancels the flip rotation. |
+| `CAR.flip.rotationDamping` | `3.5` | Pitch/roll damping while a flip coasts (flip + pitch lock). Lower = more rotation after the torque stops. |
+| `CAR.recovery.roofJumpScale` | `1.6` | Jump strength when resting on the roof, relative to a normal jump. |
 | `CAR.air.torque.roll` | `36.08` |  |
 | `CAR.air.torque.pitch` | `12.15` |  |
 | `CAR.air.torque.yaw` | `8.92` |  |

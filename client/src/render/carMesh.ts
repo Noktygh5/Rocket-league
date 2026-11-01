@@ -62,22 +62,33 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
   // wheels: front radius 12.5, rear 15; centres on the ground contact line
   const wheelMat = new THREE.MeshStandardMaterial({ color: 0x15181f, roughness: 0.9, flatShading: true });
   const hubMat = new THREE.MeshStandardMaterial({ color: 0x9aa7bd, roughness: 0.4, metalness: 0.8 });
-  const wheels: THREE.Group[] = [];
+  const wheels: { steer: THREE.Group; spin: THREE.Group; r: number; front: boolean }[] = [];
   const spec = [
     { x: 37.4, r: 12.5, z: 40 }, { x: 37.4, r: 12.5, z: -40 },
     { x: -47.6, r: 15, z: 40 }, { x: -47.6, r: 15, z: -40 },
   ];
-  const seg = quality === 'low' ? 10 : 14;
+  const seg = quality === 'low' ? 10 : 16;
+  const spokeMat = new THREE.MeshStandardMaterial({ color: 0xd7e0f0, roughness: 0.35, metalness: 0.85, flatShading: true });
   for (const s of spec) {
-    const w = new THREE.Group();
-    const tire = new THREE.Mesh(new THREE.CylinderGeometry(s.r, s.r, 16, seg), wheelMat);
-    tire.rotation.x = Math.PI / 2;
-    const hub = new THREE.Mesh(new THREE.CylinderGeometry(s.r * 0.55, s.r * 0.55, 17, 6), hubMat);
+    const steer = new THREE.Group();
+    const spin = new THREE.Group();
+    const tire = new THREE.Mesh(new THREE.CylinderGeometry(s.r, s.r, 17, seg), wheelMat);
+    tire.rotation.x = Math.PI / 2; // axle along +z (the car's right)
+    spin.add(tire);
+    // five spokes make the rotation readable
+    for (let k = 0; k < 5; k++) {
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(s.r * 1.25, 2.2, 3.2), spokeMat);
+      spoke.rotation.z = (k * Math.PI * 2) / 5;
+      spoke.position.z = (s.z > 0 ? 1 : -1) * 8.8;
+      spin.add(spoke);
+    }
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(s.r * 0.28, s.r * 0.28, 19, 8), spokeMat);
     hub.rotation.x = Math.PI / 2;
-    w.add(tire, hub);
-    w.position.set(s.x, -37.77 + s.r, s.z);
-    root.add(w);
-    wheels.push(w);
+    spin.add(hub);
+    steer.add(spin);
+    steer.position.set(s.x, -37.77 + s.r, s.z);
+    root.add(steer);
+    wheels.push({ steer, spin, r: s.r, front: s.x > 0 });
   }
 
   // underglow
@@ -104,11 +115,11 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
 
   // boost flame: layered cones pointing backwards (-x)
   const flame = new THREE.Group();
-  const coneOuter = new THREE.Mesh(new THREE.ConeGeometry(12, 100, 10, 1, true),
+  const coneOuter = new THREE.Mesh(new THREE.ConeGeometry(15, 150, 12, 1, true),
     new THREE.MeshBasicMaterial({ color: 0xff7a1a, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-  const coneInner = new THREE.Mesh(new THREE.ConeGeometry(6, 70, 10, 1, true),
+  const coneInner = new THREE.Mesh(new THREE.ConeGeometry(8, 100, 12, 1, true),
     new THREE.MeshBasicMaterial({ color: 0xfff4c0, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
-  for (const c of [coneOuter, coneInner]) { c.rotation.z = Math.PI / 2; c.position.x = -50 - (c === coneOuter ? 50 : 35); flame.add(c); }
+  for (const c of [coneOuter, coneInner]) { c.rotation.z = Math.PI / 2; c.position.x = -50 - (c === coneOuter ? 75 : 50); flame.add(c); }
   flame.position.set(-64, -12, 0);
   flame.visible = false;
   root.add(flame);
@@ -127,16 +138,36 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
   streaks.visible = false;
   root.add(streaks);
 
+  // two bright ribbons behind the rear wheels at supersonic
+  const ribbonTex = (() => {
+    const c = document.createElement('canvas'); c.width = 256; c.height = 8;
+    const g = c.getContext('2d')!;
+    const gr = g.createLinearGradient(0, 0, 256, 0);
+    gr.addColorStop(0, 'rgba(255,255,255,0.95)'); gr.addColorStop(0.35, 'rgba(210,235,255,0.55)'); gr.addColorStop(1, 'rgba(160,210,255,0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 256, 8);
+    return new THREE.CanvasTexture(c);
+  })();
+  const ribbons = new THREE.Group();
+  for (const z of [-34, 34]) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(900, 9),
+      new THREE.MeshBasicMaterial({ map: ribbonTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    m.rotation.x = -Math.PI / 2; m.rotation.z = Math.PI; // flat, extending backwards (-x)
+    m.position.set(-60 - 450, -33, z);
+    ribbons.add(m);
+  }
+  ribbons.visible = false;
+  root.add(ribbons);
+
   let t = 0;
   return {
     root,
     update(dt, boosting, supersonic, boostLevel, forwardSpeed, steer) {
       t += dt;
-      const roll = (forwardSpeed * dt);
-      wheels.forEach((w, i) => {
-        w.children.forEach((c) => (c.rotation.z -= roll / (i < 2 ? 12.5 : 15)));
-        if (i < 2) w.rotation.y = -steer * 0.35;
-      });
+      // rolling without slip about the axle (+z): angle changes by -v*dt/r when moving forward (+x)
+      for (const w of wheels) {
+        w.spin.rotation.z -= (forwardSpeed * dt) / w.r;
+        if (w.front) w.steer.rotation.y = -steer * 0.38;
+      }
       flame.visible = boosting;
       if (boosting) {
         const f = 0.85 + Math.sin(t * 90) * 0.12 + Math.random() * 0.12;
@@ -144,6 +175,7 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
         flame.scale.set(k * 1.1, k, k);
       }
       streaks.visible = supersonic;
+      ribbons.visible = supersonic;
       glow.material.opacity = boosting ? 0.9 : 0.5;
     },
     setTeam(tm) {
