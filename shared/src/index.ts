@@ -10,3 +10,6 @@ export * from './ball';
 export * from './car';
 export * from './collide';
 export * from './sim';
+export * from './bot/bot';
+export * from './bot/predict';
+export * from './bot/headless';
