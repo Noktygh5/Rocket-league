@@ -108,19 +108,15 @@ export function collideCarBall(car: CarState, ball: BallState, tick: number): bo
     applyImpulse(car, rc, -fx, -fy, -fz);
   }
 
-  // Extra impulse: direction = contact normal with its local Z flattened, nudged toward car-forward.
+  // Extra impulse (measured game behaviour): direction runs from the car's centre to the ball, with its
+  // vertical part scaled down (flatter shots) and its component along the car's forward axis scaled by 0.65.
   const scale = curve(ch.extraImpulseCurve, relSpeed);
   vec3.set(fwd, m[0], m[3], m[6]);
-  let ldx = nl.x, ldy = nl.y, ldz = nl.z * ch.normalZScale;
-  const ll = Math.sqrt(ldx * ldx + ldy * ldy + ldz * ldz) || 1;
-  ldx /= ll; ldy /= ll; ldz /= ll;
-  dirV.x = m[0] * ldx + m[1] * ldy + m[2] * ldz;
-  dirV.y = m[3] * ldx + m[4] * ldy + m[5] * ldz;
-  dirV.z = m[6] * ldx + m[7] * ldy + m[8] * ldz;
-  const fdot = Math.max(0, ldx);
-  dirV.x += fwd.x * ch.forwardScale * fdot;
-  dirV.y += fwd.y * ch.forwardScale * fdot;
-  dirV.z += fwd.z * ch.forwardScale * fdot;
+  let rx = ball.pos.x - car.pos.x, ry = ball.pos.y - car.pos.y, rz = (ball.pos.z - car.pos.z) * ch.normalZScale;
+  const along = rx * fwd.x + ry * fwd.y + rz * fwd.z;
+  const cut = along * (1 - ch.forwardScale);
+  rx -= fwd.x * cut; ry -= fwd.y * cut; rz -= fwd.z * cut;
+  dirV.x = rx; dirV.y = ry; dirV.z = rz;
   vec3.normalize(dirV, dirV);
   const dv = scale * relSpeed;
   bv.x += dirV.x * dv; bv.y += dirV.y * dv; bv.z += dirV.z * dv;

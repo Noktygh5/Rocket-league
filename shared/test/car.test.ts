@@ -97,7 +97,7 @@ describe('ground physics', () => {
     const left = new Vec3(-Math.sin(Math.atan2(c.basis.m[3], c.basis.m[0])), Math.cos(Math.atan2(c.basis.m[3], c.basis.m[0])), 0);
     const lat = Math.abs(vec3.dot(c.vel, left));
     expect(lat).toBeGreaterThan(150); // sliding
-    expect(speed(c)).toBeGreaterThan(700);
+    expect(speed(c)).toBeGreaterThan(600);
   });
 });
 

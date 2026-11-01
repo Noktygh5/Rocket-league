@@ -46,14 +46,24 @@ export const CAR = {
     /** Lateral friction scale: normal vs powersliding. */
     /** Lateral velocity decay rate (1/s): gripping vs powersliding. */
     lateralGripRate: 60,
-    handbrakeGripRate: 0.6,
+    /** Lateral grip rate (1/s) at full powerslide; 10% of the normal rate. */
+    handbrakeGripRate: 6,
+    /** Hard cap on sideways deceleration (uu/s^2): normal grip vs 10% of it at full powerslide (friction is force-limited). */
+    lateralMaxDecel: 12000,
+    /** Speed lost while cornering: decel = factor * lateral acceleration. Tuned so full-lock turning settles near 1234 uu/s. */
+    turnDrag: 0.095,
+    powerslideGripFactor: 0.1,
+    /** Powerslide input ramps up / down at these rates (1/s). */
+    powerslideRise: 5,
+    powerslideFall: 2,
+    /** Steer angle (rad) by speed while powersliding. */
+    powerslideSteerCurve: [0, 0.39235, 2500, 0.1261],
     /** How fast yaw rate converges to the steering target (1/s). */
     steerResponse: 30,
     /** Seconds after a jump during which wheel contact is ignored. */
     jumpGroundLockout: 0.06,
     /** Wheelbase used for steering: curvature = tan(steerAngle) / wheelbase. */
     wheelbase: 85,
-    handbrakeSteerScale: 1.4,
     /** Sticky force relative to gravity: base with 3 wheels, up to max with 4. */
     stickyBase: 0.5,
     stickyMax: 1.5,
@@ -62,9 +72,11 @@ export const CAR = {
 
   boost: {
     max: 100,
-    start: 33,
+    start: 33.333,
     useRate: 33.333,
     accel: 991.667,
+    /** Thrust while airborne. */
+    airAccel: 1058.333,
     /** A press consumes at least this long. */
     minHoldTime: 0.1,
   },
@@ -82,9 +94,12 @@ export const CAR = {
     /** Impulse magnitude of a directional flip (horizontal, uu/s). */
     impulse: 500,
     /** Forward flip impulse scale by forward speed so it's strongest near standing speeds. */
-    forwardScaleCurve: [0, 1.0, 1400, 0.7, 2300, 0.55],
-    sideScale: 0.9,
-    backwardScale: 0.85,
+    /** Impulse multipliers at max speed (1 = no speed dependence). Scale grows linearly with |forward speed| / 2300. */
+    forwardMaxSpeedScale: 1.0,
+    sideMaxSpeedScale: 1.9,
+    backwardMaxSpeedScale: 2.5,
+    /** Extra multiplier on backward flips. */
+    backwardScaleX: 16 / 15,
     duration: 0.65,
     torquePitch: 224,
     torqueRoll: 260,
@@ -92,12 +107,13 @@ export const CAR = {
     /** Angular speed cap while a flip is rotating (the normal 5.5 cap makes flips far too slow). */
     maxAngularSpeed: 8.5,
     /** Vertical velocity damping ("flip hang"). */
+    /** Per-tick (at 120 Hz) fractional vertical-speed loss during the hang window: vz *= 1 - factor * dt * 120. */
     zDampFactor: 0.35,
     zDampStart: 0.15,
     zDampEnd: 0.21,
     /** Pitch input is ignored after a flip. */
     pitchLockTime: 1.0,
-    pitchLockExtra: 0.1,
+    pitchLockExtra: 0.3,
     /** Input magnitude that counts as a directional flip. */
     deadzone: 0.5,
     /** Opposite pitch input above this magnitude cancels the flip rotation. */
@@ -115,8 +131,10 @@ export const CAR = {
     autoRightHop: 230,
     /** Roll speed (rad/s) used while auto-righting. */
     autoRightRate: 6.5,
-    /** In-air self-levelling (rad/s^2 per unit of tilt) when the player gives no steering input; 0 disables it. */
+    /** In-air self-levelling blend rate (1/s) when the player gives no steering input; 0 disables it. */
     airLevel: 7,
+    /** Fastest in-air self-levelling rotation (rad/s). */
+    airLevelRate: 4.5,
     /** Extra angular damping (1/s) while self-levelling so the car settles instead of oscillating. */
     airLevelDamping: 1.6,
   },
@@ -131,17 +149,19 @@ export const CAR = {
 
   collision: {
     /** Car vs arena. */
-    restitution: 0.25,
+    restitution: 0.3,
     friction: 0.3,
     /** Hitbox points may sink this far into a surface before colliding (wheel clearance). */
     arenaTolerance: 1.6,
     /** Below this closing speed collisions are perfectly inelastic. */
     restitutionSpeedThreshold: 120,
     /** Car vs car. */
-    carRestitution: 0.35,
+    carRestitution: 0.1,
   },
 
   demo: {
+    /** Respawn spots (blue; orange mirrors them), cycled by slot. */
+    respawnSpots: [[-2304, -4608], [2304, -4608], [-2688, -4608], [2688, -4608]],
     /** Attacker speed required for a demolition. */
     minSpeed: 2200,
     respawnTime: 3,
@@ -162,7 +182,7 @@ export const BALL = {
   carHit: {
     /** Restitution of the plain rigid-body part of a car hit (extra impulse adds the rest). */
     restitution: 0,
-    friction: 0.2,
+    friction: 2.0,
     /** Extra impulse scale by relative speed (uu/s). */
     extraImpulseCurve: [0, 0.65, 500, 0.65, 2300, 0.55, 4600, 0.3],
     /** Multiplier on contact-normal Z when forming the extra-impulse direction. */

@@ -104,7 +104,7 @@ export class World {
     this.sun.shadow.bias = -0.0005;
     this.scene.add(this.sun, this.sun.target);
 
-    const ballMat = new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.4, metalness: 0.55, emissive: 0x1a6a88, emissiveIntensity: 0.9, emissiveMap: undefined });
+    const ballMat = new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.4, metalness: 0.55, emissive: 0x1a6a88, emissiveIntensity: 0.9 });
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 28, 20), ballMat);
     this.ball.castShadow = true;
     this.scene.add(this.ball);

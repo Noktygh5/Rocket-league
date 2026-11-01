@@ -89,3 +89,21 @@ The second video was a screen recording of the game itself (128 s). Problems see
 - **Boost blob / cyan flash.** Ignition puffs and trail puffs are smaller and dimmer; the ball's glow billboard fades out and hides when the camera is close to the ball (it was flooding the screen cyan).
 - **Ball cam toggle.** In a clean run F toggled correctly (state and HUD label), so the failure was not reproducible. It now shows a clear "BALL CAM ON / OFF" message each time, so any remaining problem is easy to describe.
 - Bot ladder after these changes (40 matches, 120 s): Medium beats Easy 22-5, Hard beats Medium 18-13, Hard beats Easy 23-5.
+
+## Round 5: mechanics research and realism pass
+
+Sources: the RLBot "Useful Game Values" wiki page, the rlgym game-values cheatsheet, and the constants file of RocketSim (an open reimplementation of the game's physics that was validated against the real game). Findings and what changed:
+- **Flip impulse** (was wrong): forward flips are a constant 500 uu/s; side flips scale 1 -> 1.9x and backward flips 1 -> 2.5x (times 16/15) with |forward speed| / 2300. Measured in the sim: front +500 at any speed, side 500 -> 878, back 533 -> 1333.
+- **Flip hang**: vertical speed is multiplied by `1 - 0.35 * dt * 120` every tick for 0.06 s (a near-stop); was a single mild 0.35 total.
+- **Boost** thrust is 1058.3 uu/s^2 in the air (991.7 on the ground), start amount 33.33.
+- **Powersliding** ramps in at 5/s and out at 2/s, has its own steering curve ((0, 0.392) -> (2500, 0.126) rad), keeps 10% of the normal lateral grip, and braking friction is halved. Friction is force-limited (sideways decel capped at 12000 uu/s^2, 1200 at full slide) rather than an exponential rate, which keeps speed through the slide.
+- **Cornering costs speed.** Measured in the real game: full throttle + full steer settles near 1234 uu/s, 90 degrees in ~0.78 s, 360 in ~3.1 s. Mine now: 1220 uu/s, 0.91 s, 3.07 s (`CAR.drive.turnDrag`).
+- **Ball hit extra impulse**: direction is from the car centre to the ball with the vertical part x0.35 and the forward part x0.65 (was the contact normal). Car-ball friction 2.0, restitution 0; car-arena restitution 0.3; car-car restitution 0.1; pitch-lock after a flip 1.3 s. Result: ball leaves at ~1.35-1.4x the car's speed.
+- **Demolition respawns** use the game's four back-corner spots (+-2304 / +-2688, +-4608), not the kickoff spots.
+- Unchanged and confirmed correct: gravity 650, ball 6000 / 6 rad/s / restitution 0.6 / drag 0.03, car 2300 / 2200 / 5.5 rad/s, braking 3500, coasting 525, jump 291.667 + 1458.33 for up to 0.2 s, 1.25 s second-jump window, boost 33.3/s, pad sizes and positions, kickoff spawns.
+- Flip *rotation* speed is not published; it is tuned against the reference footage (a full turn, wheels down by ~1.1 s), with an 8.5 rad/s cap while flipping.
+
+New test tooling: `npm run bench` (turning, acceleration, braking, jump, flip-impulse numbers), `npm run chaos` (10 simulated minutes of 4 cars on random inputs: NaNs, escapes, stuck and inverted time), `npm run hitbench` (ball-hit strength).
+- Chaos result: no NaNs, no cars outside the arena, the longest a car stays inverted on a surface is 0.55 s (was 6 s before the auto-right changes).
+- Automatic righting no longer has a speed limit (a car sliding on its roof at 900 uu/s used to stay inverted for seconds); it triggers when the roof or side, not the wheels, is against the surface. In-air self-levelling now steers toward a target rotation rate (4.5 rad/s max) instead of a weak torque, so an inverted falling car lands on its wheels.
+- Bot ladder (40 matches x 120 s): Medium beats Easy 17-8, Hard beats Medium 14-10, Hard beats Easy 22-7.

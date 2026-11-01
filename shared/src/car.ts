@@ -73,6 +73,8 @@ export class CarState {
   wheelHit = [false, false, false, false];
   /** Hitbox is touching (or within 2 uu of) the arena, e.g. resting on its roof. */
   roofRest = false;
+  /** 0..1 powerslide amount (ramps up at 5/s, down at 2/s). */
+  slide = 0;
   /** Seconds spent resting tipped over; at the auto-right delay the car rights itself. */
   tippedTime = 0;
   autoRight = false;
@@ -93,7 +95,7 @@ export function copyCar(o: CarState, a: CarState): void {
   o.flipCancel = a.flipCancel; o.pitchLock = a.pitchLock;
   o.demolished = a.demolished; o.respawnTimer = a.respawnTimer; o.lastTouchTick = a.lastTouchTick;
   for (let i = 0; i < 4; i++) o.wheelHit[i] = a.wheelHit[i];
-  o.tippedTime = a.tippedTime; o.autoRight = a.autoRight; o.roofRest = a.roofRest;
+  o.slide = a.slide; o.tippedTime = a.tippedTime; o.autoRight = a.autoRight; o.roofRest = a.roofRest;
   o.hitboxContact = a.hitboxContact; vec3.copy(o.hitboxNormal, a.hitboxNormal);
 }
 
@@ -313,8 +315,7 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
 
   // ---- auto-right: a car left resting tipped over hops and rolls back onto its wheels -------------
   {
-    const speed2 = c.vel.x * c.vel.x + c.vel.y * c.vel.y + c.vel.z * c.vel.z;
-    const tipped = m[8] < 0.3 && c.hitboxContact && contacts < 3 && speed2 < 500 * 500;
+    const tipped = m[8] < 0.3 && c.hitboxContact && contacts < 3 && vec3.dot(upV, c.hitboxNormal) < 0.35;
     if (tipped && !c.autoRight) {
       c.tippedTime += dt;
       if (c.tippedTime >= CAR.recovery.autoRightDelay) {
@@ -397,7 +398,7 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
     const fl = CAR.flip;
     // hang: damp vertical velocity in a short window
     if (c.flipTimer >= fl.zDampStart && c.flipTimer <= fl.zDampEnd) {
-      c.vel.z *= Math.pow(fl.zDampFactor, dt / (fl.zDampEnd - fl.zDampStart));
+      c.vel.z *= Math.max(0, 1 - fl.zDampFactor * dt * PHYSICS.tickRate);
     }
     // cancel: opposite pitch input stops the rotation
     if (!c.flipCancel && c.flipDirX !== 0 && inp.pitch * c.flipDirX < -fl.cancelThreshold) c.flipCancel = true;
@@ -428,21 +429,31 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
         c.vel.x += fF.x * dv; c.vel.y += fF.y * dv; c.vel.z += fF.z * dv;
       }
     } else if (!c.boosting) {
-      const dv = Math.min(speedAbs, D.coastDecel * dt) * -sign(vf);
+      const dv = Math.min(speedAbs, D.coastDecel * (1 - 0.5 * c.slide) * dt) * -sign(vf);
       c.vel.x += fF.x * dv; c.vel.y += fF.y * dv; c.vel.z += fF.z * dv;
     }
 
     // lateral grip
     const lv = c.vel.x * lF.x + c.vel.y * lF.y + c.vel.z * lF.z;
-    const grip = 1 - Math.exp(-(inp.handbrake ? D.handbrakeGripRate : D.lateralGripRate) * dt);
-    c.vel.x -= lF.x * lv * grip; c.vel.y -= lF.y * lv * grip; c.vel.z -= lF.z * lv * grip;
+    c.slide = inp.handbrake ? Math.min(1, c.slide + D.powerslideRise * dt) : Math.max(0, c.slide - D.powerslideFall * dt);
+    const gripRate = D.lateralGripRate + (D.handbrakeGripRate - D.lateralGripRate) * c.slide;
+    const grip = 1 - Math.exp(-gripRate * dt);
+    const capDv = D.lateralMaxDecel * (1 - c.slide * (1 - D.powerslideGripFactor)) * dt;
+    let dLat = lv * grip;
+    if (dLat > capDv) dLat = capDv; else if (dLat < -capDv) dLat = -capDv;
+    c.vel.x -= lF.x * dLat; c.vel.y -= lF.y * dLat; c.vel.z -= lF.z * dLat;
 
     // steering: yaw rate about the surface normal = v * tan(angle) / wheelbase
-    const vSteer = inp.handbrake ? Math.sqrt(vf * vf + lv * lv) * (vf < -1 ? -1 : 1) : vf;
-    let angle = curve(D.steerCurve, Math.abs(vSteer));
-    if (inp.handbrake) angle *= D.handbrakeSteerScale;
+    const vSteer = c.slide > 0.05 ? Math.sqrt(vf * vf + lv * lv) * (vf < -1 ? -1 : 1) : vf;
+    const normalAngle = curve(D.steerCurve, Math.abs(vSteer));
+    const angle = normalAngle + (curve(D.powerslideSteerCurve, Math.abs(vSteer)) - normalAngle) * c.slide;
     const wTarget = (-inp.steer * vSteer * Math.tan(angle)) / D.wheelbase;
     const wn = c.angVel.x * n.x + c.angVel.y * n.y + c.angVel.z * n.z;
+    // cornering costs speed (full-lock turning settles around 1234 uu/s)
+    if (D.turnDrag > 0 && c.slide < 0.5) {
+      const loss = Math.min(speedAbs, D.turnDrag * Math.abs(wTarget * vf) * dt) * -sign(vf);
+      c.vel.x += fF.x * loss; c.vel.y += fF.y * loss; c.vel.z += fF.z * loss;
+    }
     const k = Math.min(1, D.steerResponse * dt) * (wTarget - wn);
     c.angVel.x += n.x * k; c.angVel.y += n.y * k; c.angVel.z += n.z * k;
 
@@ -459,7 +470,8 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
     if (c.onGround) {
       c.vel.x += fF.x * a; c.vel.y += fF.y * a; c.vel.z += fF.z * a;
     } else {
-      c.vel.x += fwdV.x * a; c.vel.y += fwdV.y * a; c.vel.z += fwdV.z * a;
+      const aa = CAR.boost.airAccel * dt;
+      c.vel.x += fwdV.x * aa; c.vel.y += fwdV.y * aa; c.vel.z += fwdV.z * aa;
     }
     c.boost = Math.max(0, c.boost - CAR.boost.useRate * dt);
   }
@@ -522,18 +534,18 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
       Math.abs(inp.pitch) + Math.abs(inp.yaw) + Math.abs(inp.roll) + Math.abs(inp.steer) < 0.05) {
     const px = c.pos.x + c.vel.x * 0.3, py = c.pos.y + c.vel.y * 0.3, pz = c.pos.z + c.vel.z * 0.3;
     if (arena.sdf(px, py, pz) < 450) arena.normal(nn, px, py, pz); else vec3.set(nn, 0, 0, 1);
-    const ex = upV.y * nn.z - upV.z * nn.y, ey = upV.z * nn.x - upV.x * nn.z, ez = upV.x * nn.y - upV.y * nn.x;
+    let ex = upV.y * nn.z - upV.z * nn.y, ey = upV.z * nn.x - upV.x * nn.z, ez = upV.x * nn.y - upV.y * nn.x;
     const sin = Math.sqrt(ex * ex + ey * ey + ez * ez);
-    const cos = upV.x * nn.x + upV.y * nn.y + upV.z * nn.z;
-    const gain = CAR.recovery.airLevel * dt;
-    if (sin > 0.15 || cos > 0) {
-      c.angVel.x += ex * gain; c.angVel.y += ey * gain; c.angVel.z += ez * gain;
-    } else {
-      const sgn = leftV.z >= 0 ? -1 : 1; // exactly inverted: roll about the forward axis
-      c.angVel.x += fwdV.x * sgn * gain * 2; c.angVel.y += fwdV.y * sgn * gain * 2; c.angVel.z += fwdV.z * sgn * gain * 2;
+    const cos = Math.max(-1, Math.min(1, upV.x * nn.x + upV.y * nn.y + upV.z * nn.z));
+    const theta = Math.acos(cos);
+    if (theta > 0.03) {
+      if (sin > 0.15 || cos > 0) { ex /= sin || 1; ey /= sin || 1; ez /= sin || 1; }
+      else { const sgn = leftV.z >= 0 ? -1 : 1; ex = fwdV.x * sgn; ey = fwdV.y * sgn; ez = fwdV.z * sgn; } // inverted: roll about forward
+      // aim for an angular velocity proportional to the remaining tilt and blend toward it quickly
+      const rate = Math.min(CAR.recovery.airLevelRate, 1.2 + 2.0 * theta);
+      const k = Math.min(1, CAR.recovery.airLevel * dt);
+      c.angVel.x += (ex * rate - c.angVel.x) * k; c.angVel.y += (ey * rate - c.angVel.y) * k; c.angVel.z += (ez * rate - c.angVel.z) * k;
     }
-    const damp = Math.max(0, 1 - CAR.recovery.airLevelDamping * dt);
-    c.angVel.x *= damp; c.angVel.y *= damp; c.angVel.z *= damp;
   }
 
   // ---- limits + integration -------------------------------------------------------------------
@@ -574,9 +586,12 @@ function startSecondJump(c: CarState, inp: CarInput): void {
   fx /= fl2; fy /= fl2;
   const rx = fy, ry = -fx; // right
   const vf = c.vel.x * fx + c.vel.y * fy;
-  const scaleF = ux > 0 ? curve(fl.forwardScaleCurve, Math.abs(vf)) : fl.backwardScale;
-  const along = ux * (ux > 0 ? scaleF : fl.backwardScale);
-  const side = uy * fl.sideScale;
+  const ratio = Math.min(1, Math.abs(vf) / CAR.maxSpeed);
+  // forward flips are constant; side and backward flips grow with speed (measured game behaviour)
+  let along = ux;
+  if (ux > 0) along *= 1 + (fl.forwardMaxSpeedScale - 1) * ratio;
+  else along *= (1 + (fl.backwardMaxSpeedScale - 1) * ratio) * fl.backwardScaleX;
+  const side = uy * (1 + (fl.sideMaxSpeedScale - 1) * ratio);
   c.vel.x += (fx * along + rx * side) * fl.impulse;
   c.vel.y += (fy * along + ry * side) * fl.impulse;
   c.flipActive = true;

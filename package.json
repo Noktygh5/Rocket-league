@@ -14,7 +14,9 @@
     "typecheck": "tsc -p shared/tsconfig.json --noEmit && tsc -p client/tsconfig.json --noEmit && tsc -p server/tsconfig.json --noEmit",
     "test": "npm run test --workspace shared",
     "ladder": "npm run ladder --workspace shared",
-    "tuning-doc": "npm run tuning --workspace shared"
+    "tuning-doc": "npm run tuning --workspace shared",
+    "bench": "npm run bench --workspace shared",
+    "chaos": "npm run chaos --workspace shared"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",

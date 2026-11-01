@@ -9,6 +9,9 @@
     "build": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "ladder": "tsx scripts/botladder.ts 50 120",
-    "tuning": "tsx scripts/gentuning.ts"
+    "tuning": "tsx scripts/gentuning.ts",
+    "bench": "tsx scripts/bench.ts",
+    "chaos": "tsx scripts/chaos.ts",
+    "hitbench": "tsx scripts/hitbench.ts"
   }
 }

@@ -117,6 +117,16 @@ export class GameSim {
     return { x: -spot.x, y: -spot.y, yaw: spot.yaw + Math.PI };
   }
 
+  /** Where a demolished car comes back: the team's back corner spots, not the kickoff position. */
+  respawnFor(i: number): { x: number; y: number; yaw: number } {
+    const car = this.cars[i];
+    const spots = CAR.demo.respawnSpots;
+    const n = (this.tick + i) % spots.length;
+    const [x, y] = spots[n];
+    if (car.team === 0) return { x, y, yaw: Math.PI / 2 };
+    return { x: -x, y: -y, yaw: -Math.PI / 2 };
+  }
+
   resetKickoff(): void {
     resetBall(this.ball);
     this.kickoffVariant = this.rng.int(2);
@@ -176,7 +186,7 @@ export class GameSim {
       if (c.demolished) {
         c.respawnTimer -= dt;
         if (c.respawnTimer <= 0 && this.phase !== Phase.Ended) {
-          const s = this.spawnFor(i);
+          const s = this.respawnFor(i);
           placeCar(c, s.x, s.y, s.yaw);
           this.emit('respawn', i);
         }

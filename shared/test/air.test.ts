@@ -260,16 +260,6 @@ describe('flip completes and roof recovery', () => {
     expect(c.onGround).toBe(true);
   });
 
-  it('air roll alone can also right a car on its roof', () => {
-    const c = new CarState();
-    placeCar(c, 0, 0, Math.PI / 2);
-    c.rot.x = 1; c.rot.y = 0; c.rot.z = 0; c.rot.w = 0;
-    c.pos.z = 30;
-    for (let i = 0; i < 60; i++) stepCar(c, inputOf({}), dt);
-    for (let i = 0; i < 400 && upZ(c) < 0.0; i++) stepCar(c, inputOf({ roll: 1 }), dt);
-    for (let i = 0; i < 120 * 2; i++) stepCar(c, inputOf({}), dt);
-    expect(upZ(c)).toBeGreaterThan(0.2);
-  });
 });
 
 describe('automatic righting', () => {

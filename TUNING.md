@@ -63,18 +63,24 @@ Bot difficulty (reaction time, prediction horizon, aerials, ...) is configured i
 | `CAR.drive.coastDecel` | `525` | How fast the car slows when you let go of the throttle. |
 | `CAR.drive.steerCurve` | `[0, 0.5336, 500, 0.3193, 1000, 0.182, 1500, 0.1078, 1750, 0.085, 3000, 0.0345]` | Front-wheel steer angle (rad) by forward speed (uu/s). — Turning radius by speed. Raise values for tighter turns at that speed. |
 | `CAR.drive.lateralGripRate` | `60` | Lateral friction scale: normal vs powersliding. Lateral velocity decay rate (1/s): gripping vs powersliding. — How quickly sideways sliding is killed. Lower = more slippery. |
-| `CAR.drive.handbrakeGripRate` | `0.6` | Powerslide slipperiness. Lower = longer drifts that keep more speed. |
+| `CAR.drive.handbrakeGripRate` | `6` | Lateral grip rate (1/s) at full powerslide; 10% of the normal rate. — Powerslide slipperiness. Lower = longer drifts that keep more speed. |
+| `CAR.drive.lateralMaxDecel` | `12000` | Hard cap on sideways deceleration (uu/s^2): normal grip vs 10% of it at full powerslide (friction is force-limited). |
+| `CAR.drive.turnDrag` | `0.095` | Speed lost while cornering: decel = factor * lateral acceleration. Tuned so full-lock turning settles near 1234 uu/s. |
+| `CAR.drive.powerslideGripFactor` | `0.1` |  |
+| `CAR.drive.powerslideRise` | `5` | Powerslide input ramps up / down at these rates (1/s). |
+| `CAR.drive.powerslideFall` | `2` |  |
+| `CAR.drive.powerslideSteerCurve` | `[0, 0.39235, 2500, 0.1261]` | Steer angle (rad) by speed while powersliding. |
 | `CAR.drive.steerResponse` | `30` | How fast yaw rate converges to the steering target (1/s). |
 | `CAR.drive.jumpGroundLockout` | `0.06` | Seconds after a jump during which wheel contact is ignored. |
 | `CAR.drive.wheelbase` | `85` | Wheelbase used for steering: curvature = tan(steerAngle) / wheelbase. |
-| `CAR.drive.handbrakeSteerScale` | `1.4` | Extra turn rate while holding powerslide. |
 | `CAR.drive.stickyBase` | `0.5` | Sticky force relative to gravity: base with 3 wheels, up to max with 4. |
 | `CAR.drive.stickyMax` | `1.5` | Wall / ceiling hold strength. If you fall off ceilings, raise it. |
 | `CAR.drive.minWheelsForSticky` | `3` |  |
 | `CAR.boost.max` | `100` |  |
-| `CAR.boost.start` | `33` |  |
+| `CAR.boost.start` | `33.333` |  |
 | `CAR.boost.useRate` | `33.333` | Boost drain per second. |
 | `CAR.boost.accel` | `991.667` | Boost thrust. Raise for a faster supersonic ramp-up. |
+| `CAR.boost.airAccel` | `1058.333` | Thrust while airborne. |
 | `CAR.boost.minHoldTime` | `0.1` | A press consumes at least this long. |
 | `CAR.jump.impulse` | `291.667` | Instant jump strength (tap-jump height). |
 | `CAR.jump.holdAccel` | `1458.33` | Extra push while holding jump (full-jump height). |
@@ -82,19 +88,20 @@ Bot difficulty (reaction time, prediction horizon, aerials, ...) is configured i
 | `CAR.jump.holdMinTime` | `0.025` |  |
 | `CAR.jump.secondJumpWindow` | `1.25` | Window after leaving the ground in which the second jump is allowed. — How long you have to flip after leaving the ground. |
 | `CAR.flip.impulse` | `500` | Impulse magnitude of a directional flip (horizontal, uu/s). — How far a flip launches the car. "Flips feel too strong / weak" -> change this first. |
-| `CAR.flip.forwardScaleCurve` | `[0, 1, 1400, 0.7, 2300, 0.55]` | Forward flip impulse scale by forward speed so it's strongest near standing speeds. |
-| `CAR.flip.sideScale` | `0.9` |  |
-| `CAR.flip.backwardScale` | `0.85` |  |
+| `CAR.flip.forwardMaxSpeedScale` | `1` | Forward flip impulse scale by forward speed so it's strongest near standing speeds. Impulse multipliers at max speed (1 = no speed dependence). Scale grows linearly with |forward speed| / 2300. |
+| `CAR.flip.sideMaxSpeedScale` | `1.9` |  |
+| `CAR.flip.backwardMaxSpeedScale` | `2.5` |  |
+| `CAR.flip.backwardScaleX` | `1.0666666666666667` | Extra multiplier on backward flips. |
 | `CAR.flip.duration` | `0.65` |  |
 | `CAR.flip.torquePitch` | `224` | Front/back flip rotation speed. |
 | `CAR.flip.torqueRoll` | `260` | Side flip rotation speed. |
 | `CAR.flip.minTorqueTime` | `0.5` |  |
 | `CAR.flip.maxAngularSpeed` | `8.5` | Angular speed cap while a flip is rotating (the normal 5.5 cap makes flips far too slow). |
-| `CAR.flip.zDampFactor` | `0.35` | Vertical velocity damping ("flip hang"). — Flip hang: lower = car hangs in the air more during a flip. |
+| `CAR.flip.zDampFactor` | `0.35` | Vertical velocity damping ("flip hang"). Per-tick (at 120 Hz) fractional vertical-speed loss during the hang window: vz *= 1 - factor * dt * 120. — Flip hang: lower = car hangs in the air more during a flip. |
 | `CAR.flip.zDampStart` | `0.15` |  |
 | `CAR.flip.zDampEnd` | `0.21` |  |
 | `CAR.flip.pitchLockTime` | `1` | Pitch input is ignored after a flip. — How long pitch control is disabled after a flip. |
-| `CAR.flip.pitchLockExtra` | `0.1` |  |
+| `CAR.flip.pitchLockExtra` | `0.3` |  |
 | `CAR.flip.deadzone` | `0.5` | Input magnitude that counts as a directional flip. |
 | `CAR.flip.cancelThreshold` | `0.5` | Opposite pitch input above this magnitude cancels the flip rotation. |
 | `CAR.flip.rotationDamping` | `3.5` | Pitch/roll damping while a flip coasts (flip + pitch lock). Lower = more rotation after the torque stops. |
@@ -102,7 +109,8 @@ Bot difficulty (reaction time, prediction horizon, aerials, ...) is configured i
 | `CAR.recovery.autoRightDelay` | `0.25` | A car resting tipped over for this long (s) hops and rolls itself back onto its wheels. |
 | `CAR.recovery.autoRightHop` | `230` | Hop strength (uu/s) away from the surface when auto-righting starts. |
 | `CAR.recovery.autoRightRate` | `6.5` | Roll speed (rad/s) used while auto-righting. |
-| `CAR.recovery.airLevel` | `7` | In-air self-levelling (rad/s^2 per unit of tilt) when the player gives no steering input; 0 disables it. |
+| `CAR.recovery.airLevel` | `7` | In-air self-levelling blend rate (1/s) when the player gives no steering input; 0 disables it. |
+| `CAR.recovery.airLevelRate` | `4.5` | Fastest in-air self-levelling rotation (rad/s). |
 | `CAR.recovery.airLevelDamping` | `1.6` | Extra angular damping (1/s) while self-levelling so the car settles instead of oscillating. |
 | `CAR.air.torque.roll` | `36.08` |  |
 | `CAR.air.torque.pitch` | `12.15` |  |
@@ -111,11 +119,11 @@ Bot difficulty (reaction time, prediction horizon, aerials, ...) is configured i
 | `CAR.air.damping.pitch` | `2.8` |  |
 | `CAR.air.damping.yaw` | `1.89` |  |
 | `CAR.air.throttleAccel` | `66.667` |  |
-| `CAR.collision.restitution` | `0.25` | Car vs arena. — Car bounciness against walls and floor. |
+| `CAR.collision.restitution` | `0.3` | Car vs arena. — Car bounciness against walls and floor. |
 | `CAR.collision.friction` | `0.3` |  |
 | `CAR.collision.arenaTolerance` | `1.6` | Hitbox points may sink this far into a surface before colliding (wheel clearance). |
 | `CAR.collision.restitutionSpeedThreshold` | `120` | Below this closing speed collisions are perfectly inelastic. |
-| `CAR.collision.carRestitution` | `0.35` | Car vs car. |
+| `CAR.collision.carRestitution` | `0.1` | Car vs car. |
 | `CAR.demo.minSpeed` | `2200` | Attacker speed required for a demolition. |
 | `CAR.demo.respawnTime` | `3` |  |
 | `BALL.radius` | `91.25` |  |
@@ -129,7 +137,7 @@ Bot difficulty (reaction time, prediction horizon, aerials, ...) is configured i
 | `BALL.restitution` | `0.6` | How bouncy the ball is against walls and floor. |
 | `BALL.friction` | `0.35` | How much the ball spins and grips when it rolls or bounces. |
 | `BALL.carHit.restitution` | `0` | Restitution of the plain rigid-body part of a car hit (extra impulse adds the rest). — Rigid-body bounciness of a car-ball contact (before the extra impulse). |
-| `BALL.carHit.friction` | `0.2` |  |
+| `BALL.carHit.friction` | `2` |  |
 | `BALL.carHit.extraImpulseCurve` | `[0, 0.65, 500, 0.65, 2300, 0.55, 4600, 0.3]` | Extra impulse scale by relative speed (uu/s). — Extra push added to every car hit by relative speed. "Hits feel weak/strong" -> scale this. |
 | `BALL.carHit.normalZScale` | `0.35` | Multiplier on contact-normal Z when forming the extra-impulse direction. — Lower = flatter shots; higher = more upward pops off the car. |
 | `BALL.carHit.forwardScale` | `0.65` | Blend toward car-forward for the extra impulse. |
