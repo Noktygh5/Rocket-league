@@ -15,14 +15,16 @@ export class CarInput {
   jump = false;
   boost = false;
   handbrake = false;
+  /** Reset-upright button (only acts when the car is stuck on a surface and tipped over). */
+  recover = false;
   copy(o: CarInput): this {
     this.throttle = o.throttle; this.steer = o.steer; this.pitch = o.pitch; this.yaw = o.yaw;
-    this.roll = o.roll; this.jump = o.jump; this.boost = o.boost; this.handbrake = o.handbrake;
+    this.roll = o.roll; this.jump = o.jump; this.boost = o.boost; this.handbrake = o.handbrake; this.recover = o.recover;
     return this;
   }
   clear(): this {
     this.throttle = 0; this.steer = 0; this.pitch = 0; this.yaw = 0; this.roll = 0;
-    this.jump = false; this.boost = false; this.handbrake = false;
+    this.jump = false; this.boost = false; this.handbrake = false; this.recover = false;
     return this;
   }
 }
@@ -73,6 +75,11 @@ export class CarState {
   wheelHit = [false, false, false, false];
   /** Hitbox is touching (or within 2 uu of) the arena, e.g. resting on its roof. */
   roofRest = false;
+  prevRecover = false;
+  recoverCooldown = 0;
+  /** Seconds spent resting tipped over; at the auto-right delay the car rights itself. */
+  tippedTime = 0;
+  autoRight = false;
   hitboxContact = false;
   hitboxNormal = new Vec3(0, 0, 1);
 }
@@ -90,6 +97,7 @@ export function copyCar(o: CarState, a: CarState): void {
   o.flipCancel = a.flipCancel; o.pitchLock = a.pitchLock;
   o.demolished = a.demolished; o.respawnTimer = a.respawnTimer; o.lastTouchTick = a.lastTouchTick;
   for (let i = 0; i < 4; i++) o.wheelHit[i] = a.wheelHit[i];
+  o.tippedTime = a.tippedTime; o.autoRight = a.autoRight; o.prevRecover = a.prevRecover; o.recoverCooldown = a.recoverCooldown; o.roofRest = a.roofRest;
   o.hitboxContact = a.hitboxContact; vec3.copy(o.hitboxNormal, a.hitboxNormal);
 }
 
@@ -108,6 +116,7 @@ export function placeCar(c: CarState, x: number, y: number, yaw: number): void {
   c.flipActive = false; c.flipTimer = 0; c.flipCancel = false; c.pitchLock = 0;
   c.demolished = false; c.respawnTimer = 0;
   c.hitboxContact = false; vec3.set(c.hitboxNormal, 0, 0, 1);
+  c.tippedTime = 0; c.autoRight = false;
 }
 
 /** Inertia of the hitbox as a uniform box: [roll(x), pitch(y), yaw(z)]. */
@@ -258,6 +267,23 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
   vec3.set(upV, m[2], m[5], m[8]);
 
   const g = PHYSICS.gravity;
+  // ---- reset upright (R): stand the car back on its wheels in place when it is stuck and tipped over ----
+  const recoverPressed = inp.recover && !c.prevRecover;
+  c.prevRecover = inp.recover;
+  if (c.recoverCooldown > 0) c.recoverCooldown -= dt;
+  if (recoverPressed && c.recoverCooldown <= 0 && (c.hitboxContact || c.onGround) && m[8] < CAR.recovery.uprightThreshold) {
+    let fx = m[0], fy = m[3];
+    if (fx * fx + fy * fy < 0.09) { fx = -m[2]; fy = -m[5]; } // nose pointing up/down: use the roof direction
+    if (fx * fx + fy * fy < 1e-6) { fx = 1; fy = 0; }
+    quat.fromYaw(c.rot, Math.atan2(fy, fx));
+    mat3.fromQuat(c.basis, c.rot);
+    vec3.set(c.angVel, 0, 0, 0);
+    c.vel.z = Math.max(c.vel.z, 0);
+    if (c.pos.z < CAR.restHeight + 4) c.pos.z = CAR.restHeight + 4;
+    c.recoverCooldown = CAR.recovery.cooldown;
+    c.jumped = false; c.flipUsed = false; c.flipActive = false; c.pitchLock = 0; c.airTime = 0;
+    vec3.set(fwdV, m[0], m[3], m[6]); vec3.set(leftV, m[1], m[4], m[7]); vec3.set(upV, m[2], m[5], m[8]);
+  }
   const jumpPressed = inp.jump && !c.prevJump;
   const boostPressed = inp.boost && !c.prevBoost;
   c.prevJump = inp.jump;
@@ -304,6 +330,22 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
       c.jumped = false; c.flipUsed = false; c.airTime = 0; c.flipActive = false; c.pitchLock = 0; c.jumpHeld = false;
       c.roofRest = true;
     } else c.roofRest = false;
+  }
+
+  // ---- auto-right: a car left resting tipped over hops and rolls back onto its wheels -------------
+  {
+    const speed2 = c.vel.x * c.vel.x + c.vel.y * c.vel.y + c.vel.z * c.vel.z;
+    const tipped = m[8] < 0.35 && c.hitboxContact && contacts < 3 && speed2 < 300 * 300;
+    if (tipped && !c.autoRight) {
+      c.tippedTime += dt;
+      if (c.tippedTime >= CAR.recovery.autoRightDelay) {
+        c.autoRight = true;
+        const hop = CAR.recovery.autoRightHop;
+        c.vel.x += c.hitboxNormal.x * hop; c.vel.y += c.hitboxNormal.y * hop; c.vel.z += c.hitboxNormal.z * hop;
+        c.jumped = false; c.flipUsed = false; c.flipActive = false; c.pitchLock = 0;
+      }
+    } else if (!tipped && !c.autoRight) c.tippedTime = 0;
+    if (c.autoRight && (c.onGround || m[8] > 0.96)) { c.autoRight = false; c.tippedTime = 0; c.angVel.x *= 0.3; c.angVel.y *= 0.3; c.angVel.z *= 0.3; }
   }
 
   // ---- gravity --------------------------------------------------------------------------------
@@ -480,6 +522,20 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
     c.angVel.x = m[0] * lx + m[1] * ly + m[2] * lz;
     c.angVel.y = m[3] * lx + m[4] * ly + m[5] * lz;
     c.angVel.z = m[6] * lx + m[7] * ly + m[8] * lz;
+  }
+
+  // ---- auto-right roll: rotate the roof toward world-up (about the forward axis when exactly inverted) ----
+  if (c.autoRight) {
+    const ex = upV.y * 1 - upV.z * 0, ey = upV.z * 0 - upV.x * 1, ez = 0; // up x worldUp = (uy, -ux, 0)
+    const sin = Math.sqrt(ex * ex + ey * ey);
+    const rate = CAR.recovery.autoRightRate;
+    if (sin > 0.25) {
+      const k = Math.min(rate, 2.5 + 3 * Math.asin(Math.min(1, sin))) / sin;
+      c.angVel.x = ex * k; c.angVel.y = ey * k; c.angVel.z = ez * k;
+    } else {
+      const sgn = leftV.z >= 0 ? -1 : 1; // roll about +forward moves the roof toward -left
+      c.angVel.x = fwdV.x * sgn * rate; c.angVel.y = fwdV.y * sgn * rate; c.angVel.z = fwdV.z * sgn * rate;
+    }
   }
 
   // ---- limits + integration -------------------------------------------------------------------

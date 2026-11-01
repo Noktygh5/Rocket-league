@@ -53,7 +53,7 @@ export class OfflineGame {
 
   private onAction(a: Action): void {
     if (a === 'ballcam') this.view.toggleBallCam();
-    else if (a === 'skip') {
+    else if (a === 'skip' || (a === 'recover' && this.view.replaying)) {
       this.view.skipReplay();
       if (this.sim.phase === 2) this.sim.phaseTimer = Math.min(this.sim.phaseTimer, 1.0);
     } else if (a === 'pause') this.onPauseRequest?.();

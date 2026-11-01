@@ -27,7 +27,7 @@ export interface CarVisual {
   dispose(): void;
 }
 
-const BODY_BLUE = new THREE.Color(0x1e6dff), BODY_ORANGE = new THREE.Color(0xff7a14);
+const BODY_BLUE = new THREE.Color(0x1e6dff), BODY_ORANGE = new THREE.Color(0xe2511b);
 
 export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high'): CarVisual {
   const root = new THREE.Group();
@@ -106,7 +106,7 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
   root.add(glow);
 
   // exhaust nozzles
-  const nozzleMat = new THREE.MeshBasicMaterial({ color: 0xffb36b });
+  const nozzleMat = new THREE.MeshBasicMaterial({ color: 0xff3a2e });
   for (const z of [-18, 18]) {
     const n = new THREE.Mesh(new THREE.CylinderGeometry(4, 5, 8, 8), nozzleMat);
     n.rotation.z = Math.PI / 2; n.position.set(-64, -12, z);

@@ -41,7 +41,7 @@ export function encodeInputPacket(lastTick: number, inputs: CarInput[]): ArrayBu
     const o = 6 + k * 6;
     v.setInt8(o, q8(i.throttle)); v.setInt8(o + 1, q8(i.steer)); v.setInt8(o + 2, q8(i.pitch));
     v.setInt8(o + 3, q8(i.yaw)); v.setInt8(o + 4, q8(i.roll));
-    v.setUint8(o + 5, (i.jump ? 1 : 0) | (i.boost ? 2 : 0) | (i.handbrake ? 4 : 0));
+    v.setUint8(o + 5, (i.jump ? 1 : 0) | (i.boost ? 2 : 0) | (i.handbrake ? 4 : 0) | (i.recover ? 8 : 0));
   }
   return buf;
 }
@@ -67,7 +67,7 @@ export function decodeInputPacket(buf: ArrayBuffer): InputPacket | null {
     c.throttle = f(v.getInt8(o)); c.steer = f(v.getInt8(o + 1)); c.pitch = f(v.getInt8(o + 2));
     c.yaw = f(v.getInt8(o + 3)); c.roll = f(v.getInt8(o + 4));
     const fl = v.getUint8(o + 5);
-    c.jump = (fl & 1) !== 0; c.boost = (fl & 2) !== 0; c.handbrake = (fl & 4) !== 0;
+    c.jump = (fl & 1) !== 0; c.boost = (fl & 2) !== 0; c.handbrake = (fl & 4) !== 0; c.recover = (fl & 8) !== 0;
     inputs.push(c);
   }
   return { lastTick: v.getUint32(1, true), inputs };
@@ -103,7 +103,7 @@ export interface SnapData {
 }
 
 const F_ONGROUND = 1, F_JUMPED = 2, F_JUMPHELD = 4, F_FLIPUSED = 8, F_FLIPACTIVE = 16, F_FLIPCANCEL = 32,
-  F_SUPERSONIC = 64, F_BOOSTING = 128, F_DEMOLISHED = 256, F_PREVJUMP = 512, F_PREVBOOST = 1024;
+  F_SUPERSONIC = 64, F_BOOSTING = 128, F_DEMOLISHED = 256, F_PREVJUMP = 512, F_PREVBOOST = 1024, F_PREVRECOVER = 2048, F_AUTORIGHT = 4096;
 
 const i16 = (x: number): number => Math.max(-32767, Math.min(32767, Math.round(x)));
 const u16ms = (s: number): number => Math.max(0, Math.min(65535, Math.round(s * 1000)));
@@ -144,7 +144,7 @@ export function encodeSnapshot(sim: GameSim): ArrayBuffer {
     const flags =
       (c.onGround ? F_ONGROUND : 0) | (c.jumped ? F_JUMPED : 0) | (c.jumpHeld ? F_JUMPHELD : 0) | (c.flipUsed ? F_FLIPUSED : 0) |
       (c.flipActive ? F_FLIPACTIVE : 0) | (c.flipCancel ? F_FLIPCANCEL : 0) | (c.supersonic ? F_SUPERSONIC : 0) |
-      (c.boosting ? F_BOOSTING : 0) | (c.demolished ? F_DEMOLISHED : 0) | (c.prevJump ? F_PREVJUMP : 0) | (c.prevBoost ? F_PREVBOOST : 0);
+      (c.boosting ? F_BOOSTING : 0) | (c.demolished ? F_DEMOLISHED : 0) | (c.prevJump ? F_PREVJUMP : 0) | (c.prevBoost ? F_PREVBOOST : 0) | (c.prevRecover ? F_PREVRECOVER : 0) | (c.autoRight ? F_AUTORIGHT : 0);
     v.setUint16(o, flags, true); o += 2;
     v.setUint16(o, u16ms(c.jumpTimer), true); o += 2;
     v.setUint16(o, u16ms(c.airTime), true); o += 2;
@@ -236,7 +236,7 @@ export function applyCar(c: CarState, d: CarSnapData): void {
   c.onGround = (f & F_ONGROUND) !== 0; c.jumped = (f & F_JUMPED) !== 0; c.jumpHeld = (f & F_JUMPHELD) !== 0;
   c.flipUsed = (f & F_FLIPUSED) !== 0; c.flipActive = (f & F_FLIPACTIVE) !== 0; c.flipCancel = (f & F_FLIPCANCEL) !== 0;
   c.supersonic = (f & F_SUPERSONIC) !== 0; c.boosting = (f & F_BOOSTING) !== 0; c.demolished = (f & F_DEMOLISHED) !== 0;
-  c.prevJump = (f & F_PREVJUMP) !== 0; c.prevBoost = (f & F_PREVBOOST) !== 0;
+  c.prevJump = (f & F_PREVJUMP) !== 0; c.prevBoost = (f & F_PREVBOOST) !== 0; c.prevRecover = (f & F_PREVRECOVER) !== 0; c.autoRight = (f & F_AUTORIGHT) !== 0;
   c.jumpTimer = d.jumpTimer; c.airTime = d.airTime; c.flipTimer = d.flipTimer; c.pitchLock = d.pitchLock;
   c.boostHold = d.boostHold; c.groundLockout = d.groundLockout; c.respawnTimer = d.respawn;
   c.flipDirX = d.flipDirX; c.flipDirY = d.flipDirY;

@@ -31,9 +31,9 @@ describe('bot difficulty', () => {
 
   it('hard beats easy over a batch of short matches (full ladder: npm run ladder)', () => {
     let hard = 0, easy = 0;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 16; i++) {
       const hardBlue = i % 2 === 0;
-      const r = hardBlue ? runBotMatch('hard', 'easy', 90, 300 + i) : runBotMatch('easy', 'hard', 90, 300 + i);
+      const r = hardBlue ? runBotMatch("hard", "easy", 100, 300 + i) : runBotMatch("easy", "hard", 100, 300 + i);
       hard += hardBlue ? r.goals[0] : r.goals[1];
       easy += hardBlue ? r.goals[1] : r.goals[0];
     }

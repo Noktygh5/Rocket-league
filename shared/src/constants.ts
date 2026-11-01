@@ -109,6 +109,16 @@ export const CAR = {
   recovery: {
     /** Jump strength when resting on the roof, relative to a normal jump. */
     roofJumpScale: 1.6,
+    /** The reset-upright button only works when the car's up axis is below this (z component), i.e. clearly tipped over. */
+    uprightThreshold: 0.35,
+    /** Seconds before the reset-upright button can be used again. */
+    cooldown: 1.0,
+    /** A car resting tipped over for this long (s) hops and rolls itself back onto its wheels. */
+    autoRightDelay: 0.55,
+    /** Hop strength (uu/s) away from the surface when auto-righting starts. */
+    autoRightHop: 230,
+    /** Roll speed (rad/s) used while auto-righting. */
+    autoRightRate: 6.5,
   },
 
   air: {

@@ -4,14 +4,14 @@ export type Quality = 'low' | 'medium' | 'high';
 
 export const ACTIONS = [
   'throttle', 'reverse', 'left', 'right', 'jump', 'boost', 'powerslide',
-  'rollLeft', 'rollRight', 'ballcam', 'scoreboard', 'pause', 'skip',
+  'rollLeft', 'rollRight', 'recover', 'ballcam', 'scoreboard', 'pause', 'skip',
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
 export const ACTION_LABELS: Record<Action, string> = {
   throttle: 'Throttle / pitch down', reverse: 'Reverse / pitch up', left: 'Steer / yaw left',
   right: 'Steer / yaw right', jump: 'Jump / flip', boost: 'Boost', powerslide: 'Powerslide',
-  rollLeft: 'Air roll left', rollRight: 'Air roll right', ballcam: 'Ball cam',
+  rollLeft: 'Air roll left', rollRight: 'Air roll right', recover: 'Reset car upright', ballcam: 'Ball cam',
   scoreboard: 'Scoreboard (hold)', pause: 'Pause / menu', skip: 'Skip replay',
 };
 
@@ -35,7 +35,7 @@ export interface Settings {
 
 export const DEFAULT_KEYS: Record<Action, string> = {
   throttle: 'KeyW', reverse: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', boost: 'ShiftLeft',
-  powerslide: 'KeyC', rollLeft: 'KeyQ', rollRight: 'KeyE', ballcam: 'KeyF', scoreboard: 'Tab',
+  powerslide: 'KeyC', rollLeft: 'KeyQ', rollRight: 'KeyE', recover: 'KeyR', ballcam: 'KeyF', scoreboard: 'Tab',
   pause: 'Escape', skip: 'Backspace',
 };
 

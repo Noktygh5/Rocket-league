@@ -75,6 +75,7 @@ export class World {
   private padState: number[] = [];
   private shadowFloor: THREE.Mesh;
   private clock = 0;
+  private wasBoosting: boolean[] = [];
   private ring: THREE.Mesh;
   private tmpV = new THREE.Vector3();
 
@@ -114,7 +115,17 @@ export class World {
     this.shadowFloor.rotation.x = -Math.PI / 2; this.shadowFloor.position.y = 1.5; this.shadowFloor.receiveShadow = true;
     this.scene.add(this.shadowFloor);
 
-    this.ring = new THREE.Mesh(new THREE.RingGeometry(60, 68, 56), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+    const ringTex = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 256;
+      const g = c.getContext('2d')!;
+      g.strokeStyle = '#ffffff'; g.shadowColor = '#ffffff'; g.shadowBlur = 5;
+      for (const [r, w] of [[44, 3], [70, 3.5], [96, 3]] as [number, number][]) {
+        g.lineWidth = w; g.beginPath(); g.arc(128, 128, r, 0.25, Math.PI * 2 - 0.25); g.stroke();
+      }
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
+      return t;
+    })();
+    this.ring = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), new THREE.MeshBasicMaterial({ map: ringTex, color: 0xffffff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     this.ring.rotation.x = -Math.PI / 2;
     this.scene.add(this.ring);
     this.buildArena();
@@ -207,6 +218,13 @@ export class World {
       root.position.set(c.x, c.z, -c.y);
       setQuat(root, c.q);
       view.update(dt, c.boosting, c.supersonic, c.boost, c.fwdSpeed, c.steer);
+      if (c.boosting && !this.wasBoosting[i]) {
+        // ignition: a few big yellow-orange fireballs, like the reference footage
+        const o = new THREE.Vector3(-70, -8, 0).applyQuaternion(root.quaternion).add(root.position);
+        const b0 = new THREE.Vector3(-1, 0, 0).applyQuaternion(root.quaternion);
+        for (let k = 0; k < 10; k++) this.particles.spawn(o.x, o.y, o.z, b0.x * 260 + (Math.random() - 0.5) * 240, b0.y * 260 + (Math.random() - 0.5) * 240 + 40, b0.z * 260 + (Math.random() - 0.5) * 240, 1, 0.72, 0.18, 0.55, 95, 2.2);
+      }
+      this.wasBoosting[i] = c.boosting;
       if (c.boosting) {
         // sparks from the nozzle in world space
         this.tmpV.set(-64, -12, 0).applyQuaternion(root.quaternion).add(root.position);
@@ -214,14 +232,26 @@ export class World {
         for (let k = 0; k < 2; k++) {
           this.particles.spawn(this.tmpV.x, this.tmpV.y, this.tmpV.z,
             back.x * 500 + (Math.random() - 0.5) * 160, back.y * 500 + (Math.random() - 0.5) * 160, back.z * 500 + (Math.random() - 0.5) * 160,
-            1, 0.55 + Math.random() * 0.3, 0.15, 0.35, 16, 3);
+            1, 0.55 + Math.random() * 0.3, 0.15, 0.4, 26, 3);
+        }
+        if (Math.random() < 0.5) {
+          this.particles.spawn(this.tmpV.x, this.tmpV.y, this.tmpV.z, back.x * 140 + (Math.random() - 0.5) * 60, back.y * 140 + 25, back.z * 140 + (Math.random() - 0.5) * 60, 1, 0.62, 0.15, 0.5, 60, 2.5);
         }
       }
     }
     // shadow light follows the focus car
     const fc = f.cars[f.focus] ?? f.cars[0];
-    this.ring.visible = !!fc && !fc.demolished && fc.z < 140;
-    if (fc) { this.ring.position.set(fc.x, 3.5, -fc.y); (this.ring.material as THREE.MeshBasicMaterial).color.set(fc.team === 0 ? 0x9cc4ff : 0xffc08a); }
+    // the ring decal stays on the ground under the car, fading and shrinking with height, like the reference
+    this.ring.visible = !!fc && !fc.demolished;
+    if (fc) {
+      const h = Math.max(0, fc.z - 38);
+      this.ring.position.set(fc.x, 3.5, -fc.y);
+      const sc = 1 + Math.min(1.2, h / 900);
+      this.ring.scale.set(sc, sc, 1);
+      const mat = this.ring.material as THREE.MeshBasicMaterial;
+      mat.opacity = Math.max(0.15, 0.85 - h / 1400);
+      mat.color.set(fc.team === 0 ? 0xbfd8ff : 0xffd2a8);
+    }
     if (fc) {
       this.sun.target.position.set(fc.x, 0, -fc.y);
       this.sun.position.set(fc.x + 400, 1800, -fc.y + 300);

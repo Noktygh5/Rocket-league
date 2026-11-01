@@ -20,11 +20,10 @@ export class InputSampler {
   private readonly kd = (e: KeyboardEvent): void => {
     if (!this.enabled && e.code !== settings.keys.pause) return;
     const a = this.actionFor(e.code);
-    if (a || e.code === 'Space' || e.code === 'Tab' || e.code === 'KeyR') e.preventDefault();
+    if (a || e.code === 'Space' || e.code === 'Tab') e.preventDefault();
     if (e.repeat) return;
     this.down.add(e.code);
     if (a) this.onAction?.(a);
-    else if (e.code === 'KeyR') this.onAction?.('skip');
     if (a === 'scoreboard') this.scoreboard = true;
   };
   private readonly ku = (e: KeyboardEvent): void => {
@@ -94,6 +93,7 @@ export class InputSampler {
     out.jump = this.held('jump');
     out.boost = this.held('boost');
     out.handbrake = this.held('powerslide');
+    out.recover = this.held('recover');
     return out;
   }
 }

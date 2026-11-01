@@ -38,11 +38,12 @@ Open <http://localhost:5173>.
 | Left Shift | boost |
 | C | powerslide |
 | Q / E | air roll left / right |
+| R | reset the car upright in place (also happens automatically a moment after landing on the roof) |
 | F | ball cam on / off |
 | Right mouse (hold) | rear view |
 | Tab (hold) | scoreboard |
 | Esc | pause (offline) / menu |
-| Backspace or R | skip replay |
+| Backspace | skip replay |
 
 ## Testing multiplayer locally with two tabs
 

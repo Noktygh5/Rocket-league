@@ -3,8 +3,8 @@ import { ARENA, PADS, mirrorPads } from '@turboball/shared';
 
 const BLUE = new THREE.Color(0x1f7bff);
 const ORANGE = new THREE.Color(0xff8a1f);
-const BLUE_WALL = new THREE.Color(0x3a6fe0);
-const ORANGE_WALL = new THREE.Color(0xe8863a);
+const BLUE_WALL = new THREE.Color(0x2c55b8);
+const ORANGE_WALL = new THREE.Color(0xc96a2c);
 const W = ARENA.halfWidth, L = ARENA.halfLength, H = ARENA.ceilingHeight;
 const R = ARENA.rampRadius, RC = ARENA.cornerRadius;
 const GW = ARENA.goal.halfWidth, GH = ARENA.goal.height, GD = ARENA.goal.backY;
@@ -86,11 +86,11 @@ function floorTexture(): THREE.CanvasTexture {
   return canvasTex(w, h, (g) => {
     const px = (x: number) => ((x + W) / (2 * W)) * w;
     const py = (y: number) => ((L - y) / (2 * L)) * h; // +y (orange) at the top
-    g.fillStyle = '#2c6a2b';
+    g.fillStyle = '#244a2a';
     g.fillRect(0, 0, w, h);
     const stripe = (640 / (2 * L)) * h;
     for (let i = 0; i * stripe < h; i++) {
-      if (i & 1) { g.fillStyle = 'rgba(190,255,150,0.10)'; g.fillRect(0, i * stripe, w, stripe); }
+      if (i & 1) { g.fillStyle = 'rgba(170,230,140,0.07)'; g.fillRect(0, i * stripe, w, stripe); }
     }
     for (let i = 0; i < 9000; i++) {
       g.fillStyle = Math.random() < 0.5 ? 'rgba(10,40,10,0.10)' : 'rgba(200,255,160,0.07)';
@@ -301,7 +301,7 @@ export function buildArena(low: boolean): ArenaView {
   sky.renderOrder = -10;
   group.add(sky);
   const m4 = new THREE.Matrix4();
-  const back = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000), new THREE.MeshBasicMaterial({ color: 0x3b5a2d }));
+  const back = new THREE.Mesh(new THREE.PlaneGeometry(60000, 60000), new THREE.MeshBasicMaterial({ color: 0x2d4524 }));
   back.rotation.x = -Math.PI / 2; back.position.y = -30;
   group.add(back);
   const hillMat = new THREE.MeshBasicMaterial({ color: 0x2a3d22 });

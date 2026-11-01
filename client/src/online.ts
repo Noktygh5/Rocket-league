@@ -70,7 +70,7 @@ export class OnlineGame {
 
   private onAction(a: Action): void {
     if (a === 'ballcam') this.view.toggleBallCam();
-    else if (a === 'skip') this.view.skipReplay();
+    else if (a === 'skip' || (a === 'recover' && this.view.replaying)) this.view.skipReplay();
     else if (a === 'pause') this.onPauseRequest?.();
   }
 
