@@ -467,6 +467,15 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
       c.angVel.x -= fF.x * damp; c.angVel.y -= fF.y * damp; c.angVel.z -= fF.z * damp;
     }
 
+    // planting: pull the car square onto the surface and kill any tilt spin, so landings settle at once
+    if (D.plantLevel > 0) {
+      const ex = upV.y * n.z - upV.z * n.y, ey = upV.z * n.x - upV.x * n.z, ez = upV.x * n.y - upV.y * n.x;
+      c.angVel.x += ex * D.plantLevel * dt; c.angVel.y += ey * D.plantLevel * dt; c.angVel.z += ez * D.plantLevel * dt;
+      const wn2 = c.angVel.x * n.x + c.angVel.y * n.y + c.angVel.z * n.z; // spin about the normal (steering) is kept
+      const k2 = Math.min(1, D.plantDamping * dt);
+      c.angVel.x -= (c.angVel.x - n.x * wn2) * k2; c.angVel.y -= (c.angVel.y - n.y * wn2) * k2; c.angVel.z -= (c.angVel.z - n.z * wn2) * k2;
+    }
+
     // sticky force holds the car to whatever it is driving on
     const t = clamp(1 - n.z, 0, 1);
     const scale = D.stickyBase + (D.stickyMax - D.stickyBase) * t;

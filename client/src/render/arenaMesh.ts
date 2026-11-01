@@ -342,17 +342,8 @@ export function buildArena(low: boolean): ArenaView {
     face.position.set(0, 0, -s * (L - 18));
     if (s < 0) face.rotation.y = Math.PI;
     const signTex = ledTexture(104, 20, 10, neonCss, (c) => { c.font = 'bold 14px monospace'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(label, 52, 11); });
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(2400, 380, 40), bezel); frame.position.set(0, GH + 520, -14); face.add(frame);
-    face.add(plane(2300, 300, new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false }), 0, GH + 520, 8));
-    const chevTex = ledTexture(48, 64, 9, neonCss, (c) => {
-      for (const ox of [0, 22]) { c.beginPath(); c.moveTo(4 + ox, 4); c.lineTo(20 + ox, 32); c.lineTo(4 + ox, 60); c.lineTo(14 + ox, 60); c.lineTo(30 + ox, 32); c.lineTo(14 + ox, 4); c.closePath(); c.fill(); }
-    });
-    for (const sx of [-1, 1]) {
-      const panelFrame = new THREE.Mesh(new THREE.BoxGeometry(960, 1120, 40), bezel); panelFrame.position.set(sx * 1180, 560, -14); face.add(panelFrame);
-      const cp = plane(880, 1000, new THREE.MeshBasicMaterial({ map: chevTex, toneMapped: false }), sx * 1180, 560, 8);
-      if (sx > 0) cp.scale.x = -1; // arrows point toward the goal
-      face.add(cp);
-    }
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1700, 230, 40), bezel); frame.position.set(0, GH + 400, -14); face.add(frame);
+    face.add(plane(1600, 190, new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false }), 0, GH + 400, 8));
     g.add(face);
     // painted zone on the grass in front of the goal
     const zoneTex = canvasTex(256, 128, (c) => {

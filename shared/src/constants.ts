@@ -55,6 +55,9 @@ export const CAR = {
     /** Roll levelling while driving on a surface (rad/s^2 per unit of sideways tilt) and extra roll damping (1/s). Keeps the car from sitting tilted on three wheels. */
     rollLevel: 40,
     rollDamping: 7,
+    /** Planting: while on a surface the car's up axis is pulled onto the surface normal and tilt spin is killed. */
+    plantLevel: 150,
+    plantDamping: 18,
     powerslideGripFactor: 0.1,
     /** Powerslide input ramps up / down at these rates (1/s). */
     powerslideRise: 5,
