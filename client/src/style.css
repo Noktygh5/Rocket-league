@@ -118,3 +118,22 @@ table.res tr.mvp td:first-child::after { content: ' ★ MVP'; color: #ffd34d; fo
 .notice { position: absolute; left: 50%; bottom: 17%; transform: translateX(-50%); font-weight: 800; letter-spacing: 4px; font-size: 22px; padding: 8px 20px; background: var(--panel); border-left: 4px solid var(--orange2); opacity: 0; }
 .notice.show { animation: noticeFade 1.6s ease-out forwards; }
 @keyframes noticeFade { 0% { opacity: 0; transform: translateX(-50%) translateY(8px); } 12% { opacity: 1; transform: translateX(-50%); } 75% { opacity: 1; } 100% { opacity: 0; } }
+
+/* name tags over the other players */
+.tag { position: absolute; left: 0; top: 0; display: none; align-items: center; gap: 6px; padding: 2px 12px 2px 6px; font-weight: 800; font-size: 14px; letter-spacing: .5px; border-radius: 3px; background: rgba(8,16,40,.78); box-shadow: 0 2px 8px rgba(0,0,0,.5); white-space: nowrap; }
+.tag i { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: var(--blue); }
+.tag.t0 { background: rgba(26,64,200,.85); } .tag.t0 i { background: #9fc0ff; }
+.tag.t1 { background: rgba(200,80,20,.85); } .tag.t1 i { background: #ffd0a0; }
+
+/* boost dial like the reference: dark glass disc, glowing ring with tick marks */
+.boost { filter: drop-shadow(0 0 14px rgba(255,150,60,.35)); }
+.boost .track { fill: radial-gradient(circle, #000 0, #000 100%); fill: rgba(8,6,10,.82); stroke: rgba(255,170,90,.22); stroke-width: 9; }
+.boost .fill { stroke: #ffae58; filter: drop-shadow(0 0 8px rgba(255,150,50,.9)); stroke-width: 8; }
+.boost .fill.team1 { stroke: #ffae58; }
+.boost svg::after { content: ''; }
+.boost .num { font-size: 52px; color: #ffe1bd; text-shadow: 0 0 12px rgba(255,150,60,.8), 0 2px 6px #000; font-style: italic; }
+.boost .spd { color: #ffd2a0; }
+.scorebar { filter: drop-shadow(0 4px 12px rgba(0,0,0,.6)); }
+.clock { background: linear-gradient(180deg, rgba(10,12,20,.85), rgba(10,12,20,.65)); font-size: 30px; }
+.sb.blue { background: linear-gradient(90deg, #1b46d6, #2d6bf5 60%, rgba(30,60,160,.7)); }
+.sb.orange { background: linear-gradient(270deg, #e35a16, #f7822a 60%, rgba(180,70,20,.7)); }

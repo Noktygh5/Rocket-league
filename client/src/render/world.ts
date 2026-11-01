@@ -7,7 +7,10 @@ import { BALL, PADS } from '@turboball/shared';
 import { Quality } from '../settings';
 import { ArenaView, buildArena } from './arenaMesh';
 import { CarVisual, createCarVisual } from './carMesh';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
+import { skyTexture } from './environment';
 import { Particles } from './particles';
+import { createGradePass, setGradeSpeed } from './postfx';
 import { SkidMarks } from './skid';
 
 export interface QuatLike { x: number; y: number; z: number; w: number }
@@ -38,24 +41,34 @@ export interface Frame {
 
 const BLUE = new THREE.Color(0x3d8bff), ORANGE = new THREE.Color(0xff9a3d);
 
-function ballTexture(): THREE.CanvasTexture {
-  const c = document.createElement('canvas'); c.width = 512; c.height = 256;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#1d232d'; g.fillRect(0, 0, 512, 256);
-  g.strokeStyle = '#3fd6ff'; g.lineWidth = 3;
-  g.shadowColor = '#3fd6ff'; g.shadowBlur = 6;
-  const r = 30;
-  for (let row = -1; row < 10; row++) for (let col = -1; col < 20; col++) {
-    const cx = col * r * 1.75 + (row & 1 ? r * 0.87 : 0), cy = row * r * 1.5;
-    g.beginPath();
-    for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + (k * Math.PI) / 3; g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
-    g.closePath(); g.stroke();
-  }
-  g.shadowBlur = 0;
-  g.fillStyle = 'rgba(80,90,105,0.35)';
-  for (let i = 0; i < 60; i++) g.fillRect(Math.random() * 512, Math.random() * 256, 30, 2);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
-  return t;
+function ballTextures(): { map: THREE.CanvasTexture; emissive: THREE.CanvasTexture } {
+  const mk = (draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture => {
+    const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+    draw(c.getContext('2d')!);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
+  };
+  const hexes = (g: CanvasRenderingContext2D, r: number, cb: () => void): void => {
+    for (let row = -1; row < 12; row++) for (let col = -1; col < 24; col++) {
+      const cx = col * r * 1.75 + (row & 1 ? r * 0.87 : 0), cy = row * r * 1.5;
+      g.beginPath();
+      for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + (k * Math.PI) / 3; g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
+      g.closePath(); cb();
+    }
+  };
+  let seed = 4;
+  const rnd = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const map = mk((g) => {
+    g.fillStyle = '#23272f'; g.fillRect(0, 0, 1024, 512);
+    hexes(g, 46, () => { g.fillStyle = `rgba(${60 + rnd() * 40},${68 + rnd() * 40},${80 + rnd() * 40},0.55)`; g.fill(); g.strokeStyle = 'rgba(8,10,14,0.9)'; g.lineWidth = 5; g.stroke(); });
+    for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(200,210,225,${rnd() * 0.07})`; g.fillRect(rnd() * 1024, rnd() * 512, 2 + rnd() * 40, 1); }
+  });
+  const emissive = mk((g) => {
+    g.fillStyle = '#000'; g.fillRect(0, 0, 1024, 512);
+    g.strokeStyle = '#2fd8ff'; g.lineWidth = 3; g.shadowColor = '#2fd8ff'; g.shadowBlur = 10;
+    hexes(g, 46, () => { if (rnd() < 0.22) g.stroke(); });
+    g.shadowBlur = 0;
+  });
+  return { map, emissive };
 }
 
 /** Converts a sim-space (Z up) quaternion to three.js space (Y up). */
@@ -80,6 +93,11 @@ export class World {
   private padState: number[] = [];
   private shadowFloor: THREE.Mesh;
   private clock = 0;
+  private trail!: THREE.Line;
+  private trailPos = new Float32Array(48 * 3);
+  private trailCol = new Float32Array(48 * 3);
+  private lastBall = new THREE.Vector3();
+  private grade: ShaderPass | null = null;
   private wasBoosting: boolean[] = [];
   private skid = new SkidMarks();
   private lastSkid: Float32Array[] = [];
@@ -90,13 +108,16 @@ export class World {
     this.quality = quality;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: quality !== 'low', powerPreference: 'high-performance' });
     this.renderer.setClearColor(0x05070b);
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.15;
+    this.scene.fog = new THREE.FogExp2(0xd99a76, 0.000014);
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 5, 60000);
     this.scene.add(this.particles.points);
     this.scene.add(this.skid.mesh);
 
-    this.scene.add(new THREE.HemisphereLight(0xffc7a0, 0x2a3a22, 1.7));
-    this.sun = new THREE.DirectionalLight(0xffe2c0, 2.5);
-    this.sun.position.set(400, 1800, 300);
+    this.scene.add(new THREE.HemisphereLight(0xffb98f, 0x2b3a1e, 1.15));
+    this.sun = new THREE.DirectionalLight(0xffc896, 3.1);
+    this.sun.position.set(900, 1500, 500);
     this.sun.castShadow = true;
     this.sun.shadow.camera.left = -1400; this.sun.shadow.camera.right = 1400;
     this.sun.shadow.camera.top = 1400; this.sun.shadow.camera.bottom = -1400;
@@ -104,21 +125,30 @@ export class World {
     this.sun.shadow.bias = -0.0005;
     this.scene.add(this.sun, this.sun.target);
 
-    const ballMat = new THREE.MeshStandardMaterial({ map: ballTexture(), roughness: 0.4, metalness: 0.55, emissive: 0x1a6a88, emissiveIntensity: 0.9 });
-    this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 28, 20), ballMat);
+    const ballTex = ballTextures();
+    const ballMat = new THREE.MeshStandardMaterial({ map: ballTex.map, color: 0xffffff, roughness: 0.32, metalness: 0.85, envMapIntensity: 1.3, emissive: 0xffffff, emissiveMap: ballTex.emissive, emissiveIntensity: 1.1 });
+    this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 48, 32), ballMat);
     this.ball.castShadow = true;
     this.scene.add(this.ball);
     const haloTex = (() => {
       const c = document.createElement('canvas'); c.width = c.height = 64;
       const g = c.getContext('2d')!;
       const gr = g.createRadialGradient(32, 32, 8, 32, 32, 32);
-      gr.addColorStop(0, 'rgba(90,210,255,0.45)'); gr.addColorStop(1, 'rgba(90,210,255,0)');
+      gr.addColorStop(0, 'rgba(90,210,255,0.22)'); gr.addColorStop(1, 'rgba(90,210,255,0)');
       g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
       return new THREE.CanvasTexture(c);
     })();
     this.ballHalo = new THREE.Mesh(new THREE.PlaneGeometry(420, 420), new THREE.MeshBasicMaterial({ map: haloTex, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
     this.scene.add(this.ballHalo);
 
+    {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(this.trailPos, 3));
+      geo.setAttribute('color', new THREE.BufferAttribute(this.trailCol, 3));
+      this.trail = new THREE.Line(geo, new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false, toneMapped: false }));
+      this.trail.frustumCulled = false;
+      this.scene.add(this.trail);
+    }
     this.shadowFloor = new THREE.Mesh(new THREE.PlaneGeometry(9000, 11000), new THREE.ShadowMaterial({ opacity: 0.45 }));
     this.shadowFloor.rotation.x = -Math.PI / 2; this.shadowFloor.position.y = 1.5; this.shadowFloor.receiveShadow = true;
     this.scene.add(this.shadowFloor);
@@ -136,6 +166,14 @@ export class World {
     this.ring = new THREE.Mesh(new THREE.PlaneGeometry(260, 260), new THREE.MeshBasicMaterial({ map: ringTex, color: 0xffffff, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
     this.ring.rotation.x = -Math.PI / 2;
     this.scene.add(this.ring);
+    {
+      const pm = new THREE.PMREMGenerator(this.renderer);
+      const envScene = new THREE.Scene();
+      envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, toneMapped: false })));
+      this.scene.environment = pm.fromScene(envScene, 0.02).texture;
+      this.scene.environmentIntensity = 0.95;
+      pm.dispose();
+    }
     this.buildArena();
     this.applyQuality(quality);
     this.resize();
@@ -167,20 +205,22 @@ export class World {
     const dpr = Math.min(window.devicePixelRatio || 1, q === 'low' ? 1 : 1.5);
     this.renderer.setPixelRatio(dpr);
     this.renderer.shadowMap.enabled = q !== 'low';
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.sun.castShadow = q !== 'low';
     this.sun.shadow.mapSize.set(q === 'high' ? 2048 : 1024, q === 'high' ? 2048 : 1024);
     this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
-    this.shadowFloor.visible = q !== 'low';
+    this.shadowFloor.visible = false; // the pitch itself receives shadows now
     this.particles.setScale(520 * dpr * (window.innerHeight / 720));
     this.composer?.dispose();
-    this.composer = null; this.bloom = null;
+    this.composer = null; this.bloom = null; this.grade = null;
     if (q !== 'low') {
       this.composer = new EffectComposer(this.renderer);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
       this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), q === 'high' ? 0.55 : 0.4, 0.6, 0.85);
       this.composer.addPass(this.bloom);
       this.composer.addPass(new OutputPass());
+      this.grade = createGradePass();
+      this.composer.addPass(this.grade);
     }
     this.resize();
   }
@@ -238,6 +278,18 @@ export class World {
     this.ball.position.set(f.ball.x, f.ball.z, -f.ball.y);
     setQuat(this.ball, f.ball.q);
     this.ballHalo.position.copy(this.ball.position);
+    {
+      // thin blue streak behind a fast ball
+      const sp = this.ball.position.distanceTo(this.lastBall) / Math.max(dt, 1e-3);
+      this.lastBall.copy(this.ball.position);
+      const tp = this.trailPos, tc = this.trailCol, N = tp.length / 3;
+      for (let i = N - 1; i > 0; i--) { tp[i * 3] = tp[(i - 1) * 3]; tp[i * 3 + 1] = tp[(i - 1) * 3 + 1]; tp[i * 3 + 2] = tp[(i - 1) * 3 + 2]; }
+      tp[0] = this.ball.position.x; tp[1] = this.ball.position.y; tp[2] = this.ball.position.z;
+      const k = Math.min(1, Math.max(0, (sp - 900) / 2200));
+      for (let i = 0; i < N; i++) { const f = (1 - i / N) * k; tc[i * 3] = 0.25 * f; tc[i * 3 + 1] = 0.7 * f; tc[i * 3 + 2] = 1.0 * f; }
+      (this.trail.geometry.attributes.position as THREE.BufferAttribute).needsUpdate = true;
+      (this.trail.geometry.attributes.color as THREE.BufferAttribute).needsUpdate = true;
+    }
     this.ballHalo.quaternion.copy(this.camera.quaternion);
 
     // cars
@@ -306,6 +358,7 @@ export class World {
     const hd = Math.hypot(f.ball.x - c.px, f.ball.y - c.py, f.ball.z - c.pz);
     this.ballHalo.visible = hd > 650;
     (this.ballHalo.material as THREE.MeshBasicMaterial).opacity = Math.min(1, (hd - 650) / 1400);
+    if (this.grade) setGradeSpeed(this.grade, fc?.supersonic ? 1 : 0, this.clock);
     this.particles.update(dt);
     if (this.composer) this.composer.render(dt);
     else this.renderer.render(this.scene, this.camera);

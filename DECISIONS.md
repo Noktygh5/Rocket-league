@@ -107,3 +107,16 @@ New test tooling: `npm run bench` (turning, acceleration, braking, jump, flip-im
 - Chaos result: no NaNs, no cars outside the arena, the longest a car stays inverted on a surface is 0.55 s (was 6 s before the auto-right changes).
 - Automatic righting no longer has a speed limit (a car sliding on its roof at 900 uu/s used to stay inverted for seconds); it triggers when the roof or side, not the wheels, is against the surface. In-air self-levelling now steers toward a target rotation rate (4.5 rad/s max) instead of a weak torque, so an inverted falling car lands on its wheels.
 - Bot ladder (40 matches x 120 s): Medium beats Easy 17-8, Hard beats Medium 14-10, Hard beats Easy 22-7.
+
+## Round 6: graphics rebuilt from the reference footage
+
+Mapped from stills of the reference gameplay video (full-resolution frames of the field, ramps, cage, goal, pads, car, ball, boost and HUD) and rebuilt from original procedural geometry and textures. No assets are copied or extracted, and there are no logos or names.
+- **Setting:** a rural dusk stadium. Procedural sky (violet zenith, pink, glowing orange horizon, soft lit clouds), rolling hills, a red barn, silo, windmill, two autumn trees, a power line with sagging cables, and steel lattice floodlight towers with lamp banks.
+- **Arena:** solid wood-plank lower wall (planks, grain, nail heads, weathering) with team paint on the curved ramps; above it the cage is thin steel tube ribs that follow the same wall/ceiling profile as the collision, joined by three horizontal cables, with a barely visible wire mesh (the old dense net is gone). No ceiling is drawn: the sky shows through, as in the footage. Goals have steel posts with a team-coloured light strip, heavy timber behind, and a large-hex net.
+- **Pitch:** dark olive grass with mowing stripes, blotches, blades and a worn centre circle; thin off-white lines; small glowing yellow-orange pads with glow decals; big pads also get a light beam (hidden while on cooldown).
+- **Car:** rebuilt as a clear-coated metallic hatchback with sloped windscreen, glass cabin, pillars, hood bulge, accent stripes, bumpers, grille, headlights, magenta tail-light bar, wheel arches, mirrors, twin exhausts, a wing with end plates, five-spoke rims with brake discs, and a soft contact shadow. Sky reflections come from an environment map generated from the sky texture.
+- **Boost / speed:** the flame is now crossed noise-animated additive billboards with a white-yellow core fading to orange and red; supersonic adds two bright ribbons plus streaks; the ball leaves a thin blue streak when fast.
+- **Ball:** dark gunmetal PBR sphere with hex panels and glowing cyan seams on an emissive map.
+- **Lighting and post:** ACES filmic tone mapping, warm low sun with soft shadows, hemisphere sky light, atmospheric haze, bloom, and a final grade pass (vignette, warm highlights / cool shadows, light grain, slight speed zoom at supersonic).
+- **HUD:** glowing-orange dial with an italic number (like the footage), saturated blue/orange scoreboard blocks, and name tags over opponent cars.
+- Limits: the stadium is an original rural-dusk design in the same style, not a copy of any specific map; model detail is low-poly (a few thousand triangles per car). The reference's player is orange; ours follows the player's team colour.

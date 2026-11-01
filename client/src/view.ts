@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { MATCH, Vec3, arena } from '@turboball/shared';
 import { AudioEngine } from './audio';
 import { CamPose, CamTarget, ChaseCamera } from './camera';
@@ -85,6 +86,8 @@ export class GameView {
   private fpsN = 0;
   private lowFpsFor = 0;
   onQualityDrop: ((q: Quality) => void) | null = null;
+  private tags: HTMLElement[] = [];
+  private tagV = new THREE.Vector3();
   private resizeHandler = (): void => { this.world.resize(); this.camera.aspect = this.world.aspect; };
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement, readonly opts: ViewOptions) {
@@ -103,6 +106,16 @@ export class GameView {
       padActive: new Array(34).fill(true), padTimer01: new Array(34).fill(0),
       cam: { px: 0, py: 0, pz: 0, tx: 0, ty: 0, tz: 0, ux: 0, uy: 0, uz: 1, fov: 100 }, focus: opts.localIndex,
     };
+    // name tags over the other cars, like the reference HUD
+    opts.names.forEach((name, i) => {
+      const el = document.createElement('div');
+      el.className = `tag t${opts.teams[i]}`;
+      el.innerHTML = `<i></i><span></span>`;
+      (el.querySelector('span') as HTMLElement).textContent = name;
+      el.style.display = 'none';
+      this.hud.root.appendChild(el);
+      this.tags.push(el);
+    });
     window.addEventListener('resize', this.resizeHandler);
   }
 
@@ -230,6 +243,15 @@ export class GameView {
     this.fillFrame(view);
     this.setCam(this.pose);
     this.world.render(this.frame, dt);
+    const camW = this.world.camera, W = window.innerWidth, Hh = window.innerHeight;
+    for (let i = 0; i < this.tags.length; i++) {
+      const c = view.cars[i], el = this.tags[i];
+      if (!c || i === s.localIndex || c.demolished || playing) { el.style.display = 'none'; continue; }
+      this.tagV.set(c.x, c.z + 85, -c.y).project(camW);
+      const vis = this.tagV.z < 1 && Math.abs(this.tagV.x) < 1.05 && Math.abs(this.tagV.y) < 1.05;
+      el.style.display = vis ? 'flex' : 'none';
+      if (vis) el.style.transform = `translate(${((this.tagV.x + 1) / 2) * W}px, ${((1 - this.tagV.y) / 2) * Hh}px) translate(-50%, -100%)`;
+    }
 
     // sound loops
     const me = s.cars[s.localIndex];
