@@ -88,6 +88,7 @@ export class GameView {
   onQualityDrop: ((q: Quality) => void) | null = null;
   private tags: HTMLElement[] = [];
   private tagV = new THREE.Vector3();
+  private ballArrow: HTMLElement;
   private resizeHandler = (): void => { this.world.resize(); this.camera.aspect = this.world.aspect; };
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement, readonly opts: ViewOptions) {
@@ -116,6 +117,11 @@ export class GameView {
       this.hud.root.appendChild(el);
       this.tags.push(el);
     });
+    // free camera: an arrow at the screen edge points to the ball while it is out of view
+    this.ballArrow = document.createElement('div');
+    this.ballArrow.className = 'ballarrow';
+    this.ballArrow.innerHTML = '<svg viewBox="-30 -30 60 60"><circle r="13" class="bd"/><path d="M0-27 L9-16 L-9-16 Z" class="ar"/></svg>';
+    this.hud.root.appendChild(this.ballArrow);
     window.addEventListener('resize', this.resizeHandler);
   }
 
@@ -251,6 +257,26 @@ export class GameView {
       const vis = this.tagV.z < 1 && Math.abs(this.tagV.x) < 1.05 && Math.abs(this.tagV.y) < 1.05;
       el.style.display = vis ? 'flex' : 'none';
       if (vis) el.style.transform = `translate(${((this.tagV.x + 1) / 2) * W}px, ${((1 - this.tagV.y) / 2) * Hh}px) translate(-50%, -100%)`;
+    }
+
+    // ball pointer (free camera only)
+    {
+      const b = view.ball;
+      this.tagV.set(b.x, b.z, -b.y).project(camW);
+      let nx = this.tagV.x, ny = this.tagV.y;
+      const behind = this.tagV.z > 1;
+      if (behind) { nx = -nx; ny = -ny; }
+      const off = behind || Math.abs(nx) > 0.94 || Math.abs(ny) > 0.9;
+      const show = off && !this.camera.ballCam && !playing && s.phase !== 3;
+      this.ballArrow.style.display = show ? 'block' : 'none';
+      if (show) {
+        let dx = nx, dy = ny;
+        if (behind) { const m = Math.hypot(dx, dy) || 1; dx = (dx / m) * 5; dy = (dy / m) * 5; if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) dy = -5; }
+        const k = Math.max(Math.abs(dx) / 0.9, Math.abs(dy) / 0.82, 1e-6);
+        const ex = (dx / k + 1) / 2 * W, ey = (1 - (dy / k)) / 2 * Hh;
+        const ang = Math.atan2(dx * (W / 2), dy * (Hh / 2)); // 0 = up, clockwise
+        this.ballArrow.style.transform = `translate(${ex}px, ${ey}px) translate(-50%, -50%) rotate(${ang}rad)`;
+      }
     }
 
     // sound loops
