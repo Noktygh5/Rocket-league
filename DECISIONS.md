@@ -126,3 +126,7 @@ Mapped from stills of the reference gameplay video (full-resolution frames of th
 - **Ball** (from the supplied ball art): dark carbon-weave sphere with a roughness map, ridged bands near the poles, large circular armour plates with five-arm layouts, gold accent plates and scuffs on the texture, and two real 3D lens hubs on opposite sides (glowing white-blue lens, glowing ring, metal bezel, five armour arms) that spin with the ball. The lens glows through bloom.
 - **Car** (from the supplied car art): boxier SUV silhouette, taller cabin, black fender flares over all four wheels, round glowing white-blue headlights with bezels, black grille with slats and a heavy front bumper, gold five-spoke wheels with brake discs, magenta tail-light bar, spoiler.
 - **Goal ownership:** each goal now has a large glowing sign ("BLUE GOAL" / "ORANGE GOAL") above the crossbar, tall glowing team-coloured beacon posts either side, a team-tinted net, bright team-coloured light strips on the posts and crossbar, and a painted team-coloured zone on the pitch in front of the goal. The lower walls were already painted in each team's colour on its own half.
+
+## Round 8: ball reverted
+
+The reference-style ball (carbon weave, armour plates, 3D lens hubs) was reverted on request. The ball is again the dark gunmetal hex-panel sphere, with every panel edge now glowing neon cyan (a bright white core line inside a cyan glow) so the entire surface is covered in neon strips.
