@@ -41,34 +41,92 @@ export interface Frame {
 
 const BLUE = new THREE.Color(0x3d8bff), ORANGE = new THREE.Color(0xff9a3d);
 
-function ballTextures(): { map: THREE.CanvasTexture; emissive: THREE.CanvasTexture } {
+function ballTextures(): { map: THREE.CanvasTexture; emissive: THREE.CanvasTexture; rough: THREE.CanvasTexture } {
+  const W = 2048, H = 1024;
   const mk = (draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture => {
-    const c = document.createElement('canvas'); c.width = 1024; c.height = 512;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
     draw(c.getContext('2d')!);
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t;
   };
-  const hexes = (g: CanvasRenderingContext2D, r: number, cb: () => void): void => {
-    for (let row = -1; row < 12; row++) for (let col = -1; col < 24; col++) {
-      const cx = col * r * 1.75 + (row & 1 ? r * 0.87 : 0), cy = row * r * 1.5;
-      g.beginPath();
-      for (let k = 0; k < 6; k++) { const a = Math.PI / 6 + (k * Math.PI) / 3; g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); }
-      g.closePath(); cb();
-    }
-  };
-  let seed = 4;
+  let seed = 12;
   const rnd = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+  const weave = (g: CanvasRenderingContext2D): void => {
+    g.fillStyle = '#16181c'; g.fillRect(0, 0, W, H);
+    g.lineWidth = 2;
+    for (let i = -H; i < W + H; i += 10) { g.strokeStyle = 'rgba(70,74,82,0.55)'; g.beginPath(); g.moveTo(i, 0); g.lineTo(i + H, H); g.stroke(); g.strokeStyle = 'rgba(0,0,0,0.5)'; g.beginPath(); g.moveTo(i + 5, 0); g.lineTo(i + 5 + H, H); g.stroke(); }
+  };
+  /** Armour plate shape: rounded slab with a bevelled light edge. */
+  const plate = (g: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, rot: number, fill: string, edge: string): void => {
+    g.save(); g.translate(x, y); g.rotate(rot);
+    g.beginPath(); g.moveTo(-w / 2, -h / 2 + 10); g.quadraticCurveTo(-w / 2, -h / 2, -w / 2 + 12, -h / 2); g.lineTo(w / 2 - 22, -h / 2); g.lineTo(w / 2, h / 2 - 12); g.quadraticCurveTo(w / 2, h / 2, w / 2 - 12, h / 2); g.lineTo(-w / 2 + 22, h / 2); g.closePath();
+    g.fillStyle = fill; g.fill(); g.lineWidth = 5; g.strokeStyle = edge; g.stroke();
+    g.strokeStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 2; g.strokeRect(-w / 4, -h / 6, w / 2, h / 3);
+    g.restore();
+  };
+  const hubs = [W * 0.25, W * 0.75];
   const map = mk((g) => {
-    g.fillStyle = '#23272f'; g.fillRect(0, 0, 1024, 512);
-    hexes(g, 46, () => { g.fillStyle = `rgba(${60 + rnd() * 40},${68 + rnd() * 40},${80 + rnd() * 40},0.55)`; g.fill(); g.strokeStyle = 'rgba(8,10,14,0.9)'; g.lineWidth = 5; g.stroke(); });
-    for (let i = 0; i < 900; i++) { g.fillStyle = `rgba(200,210,225,${rnd() * 0.07})`; g.fillRect(rnd() * 1024, rnd() * 512, 2 + rnd() * 40, 1); }
+    weave(g);
+    // ridged bands toward the poles
+    for (let i = 0; i < 26; i++) {
+      for (const base of [0, H - 190]) { const y = base + i * 7.2; g.fillStyle = i & 1 ? '#2b2e35' : '#14161a'; g.fillRect(0, y, W, 4.5); g.fillStyle = 'rgba(160,165,175,0.25)'; g.fillRect(0, y, W, 1); }
+    }
+    for (const cx of hubs) {
+      const cy = H / 2;
+      // big circular plate with a rim
+      g.beginPath(); g.ellipse(cx, cy, 330, 330, 0, 0, Math.PI * 2); g.fillStyle = '#1d2026'; g.fill();
+      g.lineWidth = 16; g.strokeStyle = '#6d7078'; g.stroke(); g.lineWidth = 4; g.strokeStyle = '#b6b9c0'; g.beginPath(); g.ellipse(cx, cy, 340, 340, 0, 0, Math.PI * 2); g.stroke();
+      // five armour plates around the hub
+      for (let k = 0; k < 5; k++) {
+        const a = (k / 5) * Math.PI * 2 - Math.PI / 2;
+        plate(g, cx + Math.cos(a) * 205, cy + Math.sin(a) * 205, 170, 92, a, '#3b3e46', '#8b8f98');
+      }
+      // outer gold-edged crescents
+      for (let k = 0; k < 3; k++) {
+        const a = (k / 3) * Math.PI * 2 + 0.6;
+        g.beginPath(); g.arc(cx, cy, 285, a, a + 0.55); g.lineWidth = 34; g.strokeStyle = '#6a5f2a'; g.stroke();
+        g.lineWidth = 6; g.strokeStyle = '#d5b552'; g.stroke();
+      }
+      g.beginPath(); g.ellipse(cx, cy, 98, 98, 0, 0, Math.PI * 2); g.fillStyle = '#2a2d34'; g.fill(); g.lineWidth = 10; g.strokeStyle = '#8c9098'; g.stroke();
+    }
+    // scuffs and scratches
+    for (let i = 0; i < 1400; i++) { g.strokeStyle = `rgba(200,205,215,${rnd() * 0.12})`; g.lineWidth = 1; g.beginPath(); const x = rnd() * W, y = rnd() * H; g.moveTo(x, y); g.lineTo(x + (rnd() - 0.5) * 70, y + (rnd() - 0.5) * 12); g.stroke(); }
+    // gold accent plates between the hubs
+    for (const cx of [W * 0.5, 0, W]) plate(g, cx, H / 2 - 120, 220, 130, 0.2, '#6d5a22', '#e4c25a');
   });
   const emissive = mk((g) => {
-    g.fillStyle = '#000'; g.fillRect(0, 0, 1024, 512);
-    g.strokeStyle = '#2fd8ff'; g.lineWidth = 3; g.shadowColor = '#2fd8ff'; g.shadowBlur = 10;
-    hexes(g, 46, () => { if (rnd() < 0.22) g.stroke(); });
-    g.shadowBlur = 0;
+    g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    for (const cx of hubs) {
+      const cy = H / 2;
+      g.strokeStyle = '#7fd8ff'; g.lineWidth = 14; g.shadowColor = '#4fc3ff'; g.shadowBlur = 24;
+      for (let k = 0; k < 4; k++) { const a = (k / 4) * Math.PI * 2 + 0.3; g.beginPath(); g.arc(cx, cy, 82, a, a + 1.0); g.stroke(); }
+      g.shadowBlur = 0;
+    }
   });
-  return { map, emissive };
+  const rough = mk((g) => { g.fillStyle = '#9a9a9a'; g.fillRect(0, 0, W, H); for (let i = 0; i < 800; i++) { g.fillStyle = `rgba(${rnd() * 120},${rnd() * 120},${rnd() * 120},0.4)`; g.fillRect(rnd() * W, rnd() * H, 30 + rnd() * 80, 4); } });
+  return { map, emissive, rough };
+}
+
+/** Glowing lens hub with five armour arms, attached to the ball at +/-X so it spins with it. */
+function addBallHubs(ball: THREE.Mesh): void {
+  const metal = new THREE.MeshStandardMaterial({ color: 0x4a4d55, metalness: 0.95, roughness: 0.35, envMapIntensity: 1.2 });
+  const lensMat = new THREE.MeshBasicMaterial({ color: 0xe6f7ff, toneMapped: false });
+  const ringGlow = new THREE.MeshBasicMaterial({ color: 0x5fcfff, toneMapped: false });
+  for (const side of [1, -1]) {
+    const hub = new THREE.Group();
+    const lens = new THREE.Mesh(new THREE.CircleGeometry(21, 36), lensMat); lens.position.z = 3.5;
+    const lensRing = new THREE.Mesh(new THREE.TorusGeometry(26, 3.4, 8, 40), ringGlow); lensRing.position.z = 3;
+    const bezel = new THREE.Mesh(new THREE.TorusGeometry(33, 5, 8, 40), metal); bezel.position.z = 2;
+    hub.add(lens, lensRing, bezel);
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2;
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(34, 15, 7), metal);
+      arm.position.set(Math.cos(a) * 52, Math.sin(a) * 52, 1.5); arm.rotation.z = a; hub.add(arm);
+    }
+    // seat the hub on the sphere surface, facing outward
+    hub.position.x = side * 90.4;
+    hub.rotation.y = side * Math.PI / 2;
+    ball.add(hub);
+  }
 }
 
 /** Converts a sim-space (Z up) quaternion to three.js space (Y up). */
@@ -126,9 +184,10 @@ export class World {
     this.scene.add(this.sun, this.sun.target);
 
     const ballTex = ballTextures();
-    const ballMat = new THREE.MeshStandardMaterial({ map: ballTex.map, color: 0xffffff, roughness: 0.32, metalness: 0.85, envMapIntensity: 1.3, emissive: 0xffffff, emissiveMap: ballTex.emissive, emissiveIntensity: 1.1 });
+    const ballMat = new THREE.MeshStandardMaterial({ map: ballTex.map, color: 0xffffff, roughnessMap: ballTex.rough, roughness: 1, metalness: 0.9, envMapIntensity: 1.35, emissive: 0xffffff, emissiveMap: ballTex.emissive, emissiveIntensity: 1.4 });
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 48, 32), ballMat);
     this.ball.castShadow = true;
+    addBallHubs(this.ball);
     this.scene.add(this.ball);
     const haloTex = (() => {
       const c = document.createElement('canvas'); c.width = c.height = 64;

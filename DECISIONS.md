@@ -120,3 +120,9 @@ Mapped from stills of the reference gameplay video (full-resolution frames of th
 - **Lighting and post:** ACES filmic tone mapping, warm low sun with soft shadows, hemisphere sky light, atmospheric haze, bloom, and a final grade pass (vignette, warm highlights / cool shadows, light grain, slight speed zoom at supersonic).
 - **HUD:** glowing-orange dial with an italic number (like the footage), saturated blue/orange scoreboard blocks, and name tags over opponent cars.
 - Limits: the stadium is an original rural-dusk design in the same style, not a copy of any specific map; model detail is low-poly (a few thousand triangles per car). The reference's player is orange; ours follows the player's team colour.
+
+## Round 7: reference ball and car, clear goal ownership
+
+- **Ball** (from the supplied ball art): dark carbon-weave sphere with a roughness map, ridged bands near the poles, large circular armour plates with five-arm layouts, gold accent plates and scuffs on the texture, and two real 3D lens hubs on opposite sides (glowing white-blue lens, glowing ring, metal bezel, five armour arms) that spin with the ball. The lens glows through bloom.
+- **Car** (from the supplied car art): boxier SUV silhouette, taller cabin, black fender flares over all four wheels, round glowing white-blue headlights with bezels, black grille with slats and a heavy front bumper, gold five-spoke wheels with brake discs, magenta tail-light bar, spoiler.
+- **Goal ownership:** each goal now has a large glowing sign ("BLUE GOAL" / "ORANGE GOAL") above the crossbar, tall glowing team-coloured beacon posts either side, a team-tinted net, bright team-coloured light strips on the posts and crossbar, and a painted team-coloured zone on the pitch in front of the goal. The lower walls were already painted in each team's colour on its own half.

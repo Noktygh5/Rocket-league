@@ -51,20 +51,20 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
   const paintMat = new THREE.MeshPhysicalMaterial({ color: body, metalness: 0.35, roughness: 0.34, clearcoat: 1, clearcoatRoughness: 0.08, envMapIntensity: 1.0 });
   const trimMat = new THREE.MeshStandardMaterial({ color: 0x14161a, metalness: 0.2, roughness: 0.55 });
   const glassMat = new THREE.MeshPhysicalMaterial({ color: 0x07090d, metalness: 0.9, roughness: 0.06, clearcoat: 1, envMapIntensity: 1.6 });
-  const headMat = new THREE.MeshBasicMaterial({ color: 0xfff1d0, toneMapped: false });
+  const headMat = new THREE.MeshBasicMaterial({ color: 0xd8f3ff, toneMapped: false });
   const tailMat = new THREE.MeshBasicMaterial({ color: team === 0 ? 0xff2a6a : 0xff2c9a, toneMapped: false });
   const chromeMat = new THREE.MeshStandardMaterial({ color: 0xcfd6e2, metalness: 1, roughness: 0.18 });
 
   // lower body: side silhouette extruded across the width with softened edges
   const lower = extrude([
-    [-61, -19], [-63, -7], [-60, 4], [-44, 7], [-8, 8.5], [24, 6.5], [57, 1], [63, -6], [62, -19],
+    [-62, -19], [-63.5, -4], [-61, 6], [-48, 9.5], [-10, 10.5], [22, 9.5], [54, 6], [63.5, -2], [63.5, -19],
   ], 84, 3);
   // cabin: sloped windscreen, short roof, steep rear hatch
-  const cabinSide = extrude([[-51, 5], [-34, 19], [-6, 19.5], [17, 6]], 62, 2.5);
+  const cabinSide = extrude([[-54, 7], [-40, 21.5], [-8, 22], [20, 10]], 64, 2.5);
   // door panel lines / sills / hood bulge
   const sill = box(78, 4, 86, -2, -17, 0);
   const hoodBulge = box(46, 3.5, 30, 33, 8.2, 0, -0.12);
-  const roofPanel = extrude([[-34, 20], [-8, 20.5], [-9, 23], [-33, 22.5]], 56, 1.5);
+  const roofPanel = extrude([[-38, 22], [-8, 22.5], [-9, 25], [-37, 24.5]], 58, 1.5);
   const pillars: THREE.BufferGeometry[] = [];
   for (const z of [-31.5, 31.5]) {
     pillars.push(box(3, 16, 3, 10, 12.5, z, -0.62));   // A
@@ -77,7 +77,7 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
   const glass = merge([cabinSide]);
   // accent stripe over hood + roof
   const stripeMat = new THREE.MeshPhysicalMaterial({ color: body.clone().multiplyScalar(0.28), metalness: 0.4, roughness: 0.35, clearcoat: 1 });
-  const stripes = merge([box(70, 0.8, 8, 26, 9.9, -7, -0.12), box(70, 0.8, 8, 26, 9.9, 7, -0.12), box(26, 0.8, 8, -21, 23.3, -7), box(26, 0.8, 8, -21, 23.3, 7)]);
+  const stripes = merge([box(70, 0.8, 8, 26, 9.9, -7, -0.12), box(70, 0.8, 8, 26, 9.9, 7, -0.12), box(26, 0.8, 8, -22, 25.3, -7), box(26, 0.8, 8, -22, 25.3, 7)]);
 
   // trim: bumpers, grille, wheel arches, mirrors, exhausts, spoiler
   const trimParts: THREE.BufferGeometry[] = [
@@ -88,10 +88,21 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
   ];
   for (const z of [-41, 41]) trimParts.push(box(10, 5, 7, 6, 12, z * 0.98)); // mirrors
   for (const [x, r] of [[37.4, 16], [-47.6, 18.5]] as [number, number][]) for (const z of [-41.5, 41.5]) trimParts.push(cyl(r, 1.2, x, -37.77 + r * 0.95, z, 18)); // arches
+  // fender flares: black arcs over every wheel
+  for (const [x, r] of [[37.4, 12.5], [-47.6, 15]] as [number, number][]) for (const z of [-43, 43]) {
+    const arch = new THREE.TorusGeometry(r + 6.5, 3.6, 6, 22, Math.PI); arch.translate(x, -37.77 + r, z); trimParts.push(arch.toNonIndexed());
+    const arch2 = new THREE.TorusGeometry(r + 6.5, 3.6, 6, 22, Math.PI); arch2.translate(x, -37.77 + r, z * 0.93); trimParts.push(arch2.toNonIndexed());
+  }
+  // grille slats and a heavy front bumper lip
+  for (let i = 0; i < 4; i++) trimParts.push(box(2.5, 1.6, 40, 64.4, -7 + i * 2.6, 0));
+  trimParts.push(box(9, 5, 82, 63, -16.5, 0));
+  // headlight bezels
+  for (const z of [-27, 27]) { const ring = new THREE.TorusGeometry(7.4, 1.8, 6, 22); ring.rotateY(Math.PI / 2); ring.translate(64, 0, z); trimParts.push(ring.toNonIndexed()); }
   // spoiler wing + end plates
   trimParts.push(box(16, 2.6, 80, -60, 17, 0), box(7, 15, 2.5, -59, 9.5, 36), box(7, 15, 2.5, -59, 9.5, -36));
   const trim = merge(trimParts);
-  const lights = merge([box(2.5, 5, 18, 63.3, 0, -26), box(2.5, 5, 18, 63.3, 0, 26)]);
+  const lampDisc = (z: number): THREE.BufferGeometry => { const g = new THREE.CylinderGeometry(6.2, 6.2, 3, 22); g.rotateZ(Math.PI / 2); g.translate(64, 0, z); return g.toNonIndexed(); };
+  const lights = merge([lampDisc(-27), lampDisc(27)]);
   const tails = merge([box(2.5, 5, 22, -63.5, 1, -29), box(2.5, 5, 22, -63.5, 1, 29), box(2, 3.2, 40, -63.4, 2, 0)]);
 
   const mk = (g: THREE.BufferGeometry, m: THREE.Material): THREE.Mesh => { const me = new THREE.Mesh(g, m); me.castShadow = cast; return me; };
@@ -103,7 +114,7 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
 
   // ---- wheels: tyre with sidewall, 5-spoke rim, brake disc -----------------------------------------------
   const tireMat = new THREE.MeshStandardMaterial({ color: 0x0e0f12, roughness: 0.85, metalness: 0.05 });
-  const rimMat = new THREE.MeshStandardMaterial({ color: 0xdfe5ef, roughness: 0.22, metalness: 1 });
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xf0c04a, roughness: 0.24, metalness: 1 });
   const discMat = new THREE.MeshStandardMaterial({ color: 0x6b6f77, roughness: 0.5, metalness: 0.8 });
   const wheels: { steer: THREE.Group; spin: THREE.Group; r: number; front: boolean }[] = [];
   const spec = [
@@ -120,7 +131,7 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
     const rimDisc = new THREE.Mesh(new THREE.CylinderGeometry(s.r * 0.72, s.r * 0.72, 17.4, seg), rimMat);
     rimDisc.rotation.x = Math.PI / 2;
     spin.add(tire, rimDisc);
-    const dark = new THREE.Mesh(new THREE.CylinderGeometry(s.r * 0.5, s.r * 0.5, 17.8, 10), tireMat);
+    const dark = new THREE.Mesh(new THREE.CylinderGeometry(s.r * 0.5, s.r * 0.5, 17.8, 16), tireMat);
     dark.rotation.x = Math.PI / 2; spin.add(dark);
     for (let k = 0; k < 5; k++) {
       const spoke = new THREE.Mesh(new THREE.BoxGeometry(s.r * 1.3, 2.4, 3), rimMat);

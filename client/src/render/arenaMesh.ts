@@ -4,6 +4,7 @@ import { buildCage } from './cage';
 import { buildEnvironment } from './environment';
 
 const BLUE_WALL = new THREE.Color(0x3a4cc4);
+const BLUE_GLOW = 0x3f86ff, ORANGE_GLOW = 0xff8a2a;
 const ORANGE_WALL = new THREE.Color(0xd2632a);
 const WOOD = new THREE.Color(0xb86d36);
 const W = ARENA.halfWidth, L = ARENA.halfLength, H = ARENA.ceilingHeight;
@@ -270,7 +271,7 @@ export function buildArena(low: boolean): ArenaView {
     };
     const netMat = (rx: number, ry: number): THREE.MeshBasicMaterial => {
       const t = netTex.clone(); t.needsUpdate = true; t.repeat.set(rx, ry);
-      return new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0.62, side: THREE.DoubleSide, color: 0xeef0f2, depthWrite: false });
+      return new THREE.MeshBasicMaterial({ map: t, transparent: true, opacity: 0.8, side: THREE.DoubleSide, color: s < 0 ? 0x9cc2ff : 0xffc690, depthWrite: false, toneMapped: false });
     };
     g.add(mk(2 * GW, depth, dark, 0, 0.5, -s * mid, -Math.PI / 2));
     g.add(mk(2 * GW, depth, netMat(7, 3), 0, GH, -s * mid, -Math.PI / 2));
@@ -279,7 +280,7 @@ export function buildArena(low: boolean): ArenaView {
     g.add(mk(2 * GW, GH, netMat(7, 2), 0, GH / 2, -s * GD, 0, 0));
     // steel posts/crossbar with a team-coloured light strip, and heavy timber behind the goal
     const steel = new THREE.MeshStandardMaterial({ color: 0xdfe2e6, roughness: 0.35, metalness: 0.7 });
-    const strip = new THREE.MeshBasicMaterial({ color: team, toneMapped: false });
+    const strip = new THREE.MeshBasicMaterial({ color: s < 0 ? BLUE_GLOW : ORANGE_GLOW, toneMapped: false });
     for (const px of [-GW, GW]) {
       const post = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, GH, 10), steel); post.position.set(px, GH / 2, -s * L); g.add(post);
       const led = new THREE.Mesh(new THREE.BoxGeometry(5, GH - 20, 5), strip); led.position.set(px + (px > 0 ? -14 : 14), GH / 2, -s * (L - 12)); g.add(led);
@@ -289,6 +290,36 @@ export function buildArena(low: boolean): ArenaView {
     const timber = new THREE.MeshStandardMaterial({ color: 0x6a3f22, roughness: 0.9 });
     for (const px of [-GW - 70, GW + 70]) { const beam = new THREE.Mesh(new THREE.BoxGeometry(60, GH + 160, 60), timber); beam.position.set(px, (GH + 160) / 2, -s * (L + 40)); g.add(beam); }
     const lintel = new THREE.Mesh(new THREE.BoxGeometry(2 * GW + 200, 70, 70), timber); lintel.position.set(0, GH + 120, -s * (L + 40)); g.add(lintel);
+    // --- ownership markers: a big glowing sign, a painted team zone in front of the goal, and a glow wash ---
+    const glowHex = s < 0 ? BLUE_GLOW : ORANGE_GLOW;
+    const label = s < 0 ? 'BLUE GOAL' : 'ORANGE GOAL';
+    const signTex = canvasTex(1024, 192, (c) => {
+      c.fillStyle = s < 0 ? '#1d49d4' : '#e2601a'; c.fillRect(0, 0, 1024, 192);
+      const gr = c.createLinearGradient(0, 0, 0, 192); gr.addColorStop(0, 'rgba(255,255,255,0.28)'); gr.addColorStop(0.5, 'rgba(255,255,255,0)'); gr.addColorStop(1, 'rgba(0,0,0,0.25)');
+      c.fillStyle = gr; c.fillRect(0, 0, 1024, 192);
+      c.strokeStyle = 'rgba(255,255,255,0.9)'; c.lineWidth = 8; c.strokeRect(10, 10, 1004, 172);
+      c.fillStyle = '#fff'; c.font = 'italic 900 118px system-ui, Segoe UI, Arial, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.shadowColor = 'rgba(0,0,0,0.6)'; c.shadowBlur = 10; c.fillText(label, 512, 100);
+    });
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(2300, 430), new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false, side: THREE.DoubleSide }));
+    sign.position.set(0, GH + 560, -s * (L + 70)); if (s > 0) sign.rotation.y = 0; else sign.rotation.y = Math.PI;
+    g.add(sign);
+    const signBack = new THREE.Mesh(new THREE.PlaneGeometry(2300, 430), new THREE.MeshBasicMaterial({ map: signTex, toneMapped: false, side: THREE.DoubleSide }));
+    signBack.position.copy(sign.position); signBack.position.z += s * 4; g.add(signBack);
+    // tall glowing posts either side so the goal reads from far away
+    for (const px of [-GW - 170, GW + 170]) {
+      const beacon = new THREE.Mesh(new THREE.CylinderGeometry(26, 26, 1500, 10), new THREE.MeshBasicMaterial({ color: glowHex, toneMapped: false }));
+      beacon.position.set(px, 750, -s * (L + 90)); g.add(beacon);
+    }
+    // painted zone on the grass in front of the goal
+    const zoneTex = canvasTex(256, 128, (c) => {
+      const gr = c.createLinearGradient(0, 128, 0, 0);
+      gr.addColorStop(0, s < 0 ? 'rgba(60,110,255,0.60)' : 'rgba(255,130,40,0.60)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
+      c.fillStyle = gr; c.fillRect(0, 0, 256, 128);
+    });
+    const zone = new THREE.Mesh(new THREE.PlaneGeometry(3400, 1800), new THREE.MeshBasicMaterial({ map: zoneTex, transparent: true, depthWrite: false, toneMapped: false, blending: THREE.AdditiveBlending }));
+    zone.rotation.x = -Math.PI / 2; zone.position.set(0, 2.5, -s * (L - 900)); zone.rotation.z = s > 0 ? Math.PI : 0;
+    g.add(zone);
     group.add(g);
   }
 
