@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@turboball/shared": "*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "tsx": "^4.19.2"
   },
   "devDependencies": {
     "@types/ws": "^8.5.12"

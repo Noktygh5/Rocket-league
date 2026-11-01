@@ -1,0 +1,29 @@
+# Fly.io config. Deploy from the repository root:  fly launch --no-deploy --copy-config && fly deploy
+app = "turboball-server"
+primary_region = "iad"
+
+[build]
+  dockerfile = "server/Dockerfile"
+
+[env]
+  PORT = "8080"
+  # Comma-separated list of origins allowed to open a WebSocket, e.g. your Vercel URL.
+  ALLOWED_ORIGINS = "https://your-app.vercel.app"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "3s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

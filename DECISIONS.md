@@ -14,3 +14,47 @@ Ambiguities resolved by picking the option closest to the reference game. Newest
 - **Pad list:** stored as a half-field base table and expanded by `mirrorPads()`, which skips duplicates when a coordinate is 0. Unit-tested at exactly 6 large and 28 small.
 - **Naming:** the product name is TURBOBALL; the car is "Striker". No third-party game names appear in code or package names.
 - **Tooling:** npm workspaces, TypeScript project config shared via `tsconfig.base.json`, Vitest for `/shared` only, `tsx` for running the server in dev.
+
+## Phases 2-12
+
+### Physics model
+- **Hitbox centre = centre of mass**, resting 37.77 uu above the floor (the 17.01 "root" height plus the 20.755 hitbox offset). The brief's raw suspension numbers are not self-consistent in a plain Bullet model, so the wheel rays keep the brief's radii, connection x/y, stiffness (500), damping (25/40) and travel (12), but the spring's reference length is derived from the resting height. Spring force is mass-scaled like Bullet's (stiffness x compression = acceleration).
+- **Ground driving is not a literal wheel-friction model.** Throttle, brake and coast accelerations follow the brief's curves exactly. Steering sets the yaw rate about the surface normal to `speed * tan(steerAngle) / wheelbase` (the brief's steer table matches curvature = tan(angle)/85 uu). Lateral grip is an exponential decay of sideways velocity (`lateralGripRate`, much lower while powersliding).
+- **Boost from rest reaches 2200 uu/s in ~2 s, not the ~3.5-4 s the brief estimated.** With the brief's own numbers (throttle curve 1600->0 plus 991.667 boost accel) the maths gives ~1.7-2 s to supersonic; the test accepts 1-4 s. If it feels too quick, lower `CAR.boost.accel` or the throttle curve while boosting.
+- **Angular speed cap:** 5.5 rad/s in the air, but 14 rad/s while any wheel touches a surface; otherwise a 256 uu ramp cannot be followed at speed and cars fly off at the wall-to-ceiling transition.
+- **Sticky force** scales with how far the surface normal is from floor-up: `stickyBase` (0.5 g) on the floor up to `stickyMax` (1.5 g) on walls and ceiling.
+- **Ground contact reach:** wheels count as touching while the hitbox centre is within `maxTravel` (12 uu) of its resting height; after a jump wheel contact is ignored for 0.06 s so the jump isn't immediately re-grounded.
+- **Flips:** direction uses the car's forward axis flattened onto the horizontal plane. Rotation is angular acceleration about local pitch/roll axes for 0.41 s (saturating at 5.5 rad/s). Cancel = opposite pitch input past the threshold. Pitch input is locked for `pitchLockTime + pitchLockExtra` = 1.1 s.
+- **Car-ball hit:** rigid contact with restitution 0 plus the brief's extra impulse. The extra direction is the contact normal with local Z scaled by 0.35, nudged toward car-forward by `forwardScale`. A touch on the underside of a flying car restores its flip.
+- **Demolition:** attacker must be supersonic and the contact point in the front 35% of its hitbox. If both qualify the faster car wins. Victim respawns at its kickoff spot after 3 s.
+- **Car vs car** is a full 15-axis SAT with an impulse response; the contact point is the midpoint of each box's closest point to the other's centre.
+- **Arena:** analytic SDF = rounded box (plan corners 1152, ramps 256) unioned with a goal box behind each back wall. Goal posts/crossbar are the sharp edges of the opening rather than separate 40 uu cylinders (visual posts are drawn). Ball is a goal when fully past the line (centre beyond 5120 + radius).
+
+### Match flow
+- Goal pause = 3 s celebration (first 1.6 s in slow motion, offline) + 6 s replay + 1 s, then the 3-2-1 countdown.
+- Overtime is sudden death with the clock counting up. If regulation ends with the ball in the air the match plays on until the ball touches down (or someone scores).
+- Kickoff: 1v1 uses a diagonal spot chosen with the seeded PRNG; 2v2 assigns slots to the five standard spots in order.
+- Boost pads are only consumed by cars below 100 boost.
+
+### Bots
+- Same input struct and physics as a human; difficulty is one config object each (`BOT_CONFIGS`): reaction delay by queuing inputs, prediction horizon, speed cap, aerial skill, dodge chance, steering noise, mis-timing, boost policy.
+- 50-match ladder (120 s matches): Medium beats Easy 22-9, Hard beats Medium 25-8, Hard beats Easy 27-7 (`npm run ladder`).
+- Bots are 1v1 only. The dev "debug bot view" is limited to `bot.debug` (mode and target) exposed for tooling; there is no 3D overlay.
+
+### Netcode
+- Lobby/control messages are small JSON text frames; only inputs and snapshots are packed binary (DataView). Events are JSON sent immediately (WebSocket is reliable and ordered, so "reliable events" are free).
+- Inputs are tagged with the server tick they should apply to. The client estimates the server tick from ping/pong (lowest-RTT samples), runs `rtt/2 + 4` ticks ahead, sends 60 Hz packets carrying the last 4 inputs; the server holds a per-player tick map and repeats the last input when one is missing.
+- Inputs are quantised to int8 on the client before being predicted, so client and server simulate identical values.
+- Reconciliation replays unacknowledged inputs on every snapshot; errors under 350 uu blend over ~100 ms, larger ones snap (demos, kickoffs). Remote cars are held as zero-input in the predicted sim and rendered by interpolation (2 snapshots behind, 150 ms extrapolation cap).
+- "Packet loss" in the dev simulator drops binary game packets only (WebSocket itself never loses data). The automated net test runs a server and client in-process with 100 ms RTT, jitter and 2% loss, and at 200 ms / 5%.
+- 1v1 forfeit: if a player is gone for 10 s the remaining player wins. In 2v2 a leaver's car idles and the match continues.
+- Server limits: 100 rooms, 400 connections, per-connection token buckets for JSON and binary traffic, 4 KB payload cap, name sanitising, input range clamping, future-tick cap. Empty rooms expire after 30 s.
+
+### Rendering and UI
+- All geometry is generated: arena from the same profile constants as the collision SDF, a low-poly "Striker" (~700 triangles), instanced stands/crowd, pads and light bars. One shadow-casting light for cars and ball, bloom on Medium/High, pixel ratio capped at 1.5, automatic quality drop after 5 s below 45 FPS.
+- Camera defaults match the brief. FOV is treated as horizontal and converted to vertical for the aspect ratio. Ball-cam pitch is clamped (-25 deg to +32 deg) so the car stays in frame; the camera is pushed back inside the arena by the SDF so it never clips walls.
+- Keyboard digital axes are smoothed only at the sampling layer (rise ~14/s, fall ~24/s).
+- The wall/ceiling profile and car silhouette come from the written visual brief (no reference images were supplied).
+
+### Tooling
+- `TUNING.md` is generated from `constants.ts` so it cannot drift; the in-game dev panel (F2 or `?dev`) edits the same objects live.
