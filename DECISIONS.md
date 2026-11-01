@@ -132,3 +132,9 @@ Mapped from stills of the reference gameplay video (full-resolution frames of th
 The reference-style ball (carbon weave, armour plates, 3D lens hubs) was reverted on request. The ball is again the dark gunmetal hex-panel sphere, with every panel edge now glowing neon cyan (a bright white core line inside a cyan glow) so the entire surface is covered in neon strips.
 
 Ball tweak: base is now near-black; hexagons are ~2.7x larger (about 10 panels around instead of ~25), with thin blue neon edges and a softer, bluer glow so it reads as a black ball lit by a few blue hexes.
+
+## Round 9: car rebuilt to match the supplied SUV reference
+
+- Angular SUV shell with a raked windscreen, black-framed side windows, hood bulge, gold roof skin / hood centre / sills, body-coloured fender tops, thick black triple-lip fender flares, side vent behind the front wheel, wide black bumper with splitter, black grille with metal slats, round glowing white-blue headlights in angular housings with chrome bezels and a light strip, magenta tail-light bar, tall wing with end plates and twin exhausts.
+- **Hexagon livery**: a tri-planar procedural shader (object-space, so it needs no UVs) draws hexagonal plates with per-plate shade variation and dark edge lines over the clear-coated paint. Blue team = teal paint, orange team = red-orange paint.
+- **Wheels** are larger and chunkier: black tyre, gold rim with a greek-key band and a golden starburst face on a dark disc, plus brake discs. Physics hitbox and wheel positions are unchanged.
