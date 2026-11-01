@@ -130,9 +130,9 @@ function wallTexture(): THREE.CanvasTexture {
 function ceilingTexture(): THREE.CanvasTexture {
   return canvasTex(512, 640, (g) => {
     g.fillStyle = '#11151f'; g.fillRect(0, 0, 512, 640);
-    g.fillStyle = '#e9f4ff';
+    g.fillStyle = '#9cc4ff';
     for (let i = 0; i < 6; i++) for (let j = 0; j < 8; j++) {
-      g.globalAlpha = 0.9;
+      g.globalAlpha = 0.42;
       g.fillRect(i * 85 + 12, j * 80 + 14, 62, 52);
     }
     g.globalAlpha = 0.5; g.fillStyle = '#7fb6ff';

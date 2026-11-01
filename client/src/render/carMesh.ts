@@ -8,7 +8,7 @@ function extrudeProfile(pts: [number, number][], width: number): THREE.BufferGeo
   const shape = new THREE.Shape(pts.map(([x, y]) => new THREE.Vector2(x, y)));
   const g = new THREE.ExtrudeGeometry(shape, { depth: width, bevelEnabled: false });
   g.translate(0, 0, -width / 2);
-  return g.toNonIndexed();
+  return g;
 }
 
 function tint(g: THREE.BufferGeometry, c: THREE.Color): THREE.BufferGeometry {
@@ -52,7 +52,7 @@ export function createCarVisual(team: 0 | 1, quality: 'low' | 'medium' | 'high')
   const spoilerR = tint(new THREE.BoxGeometry(6, 12, 3).translate(-58, 8, -28), dark);
   const skirt = tint(new THREE.BoxGeometry(80, 6, 88).translate(-4, -19, 0), accent);
   const lamp = tint(new THREE.BoxGeometry(2, 4, 60).translate(63, -4, 0), new THREE.Color(0xfff2c9));
-  const merged = mergeGeometries([lower, cabin, roof, stripe, spoiler, spoilerL, spoilerR, skirt, lamp].map((g) => g.index ? g.toNonIndexed() : g), false)!;
+  const merged = mergeGeometries([lower, cabin, roof, stripe, spoiler, spoilerL, spoilerR, skirt, lamp], false)!;
   merged.computeVertexNormals();
   const bodyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.45, metalness: 0.25, flatShading: true });
   const bodyMesh = new THREE.Mesh(merged, bodyMat);

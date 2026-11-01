@@ -54,7 +54,7 @@ export class Hud {
     this.banner = this.q('#banner');
     this.countdown = this.q('#countdown');
     this.fpsEl = this.q('#fps');
-    this.ring = this.q('#ring');
+    this.ring = this.root.querySelector('#ring') as unknown as SVGCircleElement;
     this.ring.style.strokeDasharray = String(this.ringLen);
   }
 
