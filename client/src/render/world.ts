@@ -59,20 +59,20 @@ function ballTextures(): { map: THREE.CanvasTexture; emissive: THREE.CanvasTextu
   };
   let seed = 4;
   const rnd = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-  const R = 44;
+  const R = 118;
   const map = mk((g) => {
-    g.fillStyle = '#20242c'; g.fillRect(0, 0, W, H);
-    hexes(g, R, () => { g.fillStyle = `rgba(${55 + rnd() * 35},${62 + rnd() * 35},${76 + rnd() * 35},0.6)`; g.fill(); g.strokeStyle = 'rgba(6,8,12,0.95)'; g.lineWidth = 7; g.stroke(); });
+    g.fillStyle = '#0a0b0e'; g.fillRect(0, 0, W, H);
+    hexes(g, R, () => { g.fillStyle = `rgba(${14 + rnd() * 12},${15 + rnd() * 12},${19 + rnd() * 14},0.9)`; g.fill(); g.strokeStyle = 'rgba(2,3,5,0.95)'; g.lineWidth = 10; g.stroke(); });
     for (let i = 0; i < 1100; i++) { g.fillStyle = `rgba(200,210,225,${rnd() * 0.06})`; g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 50, 1); }
   });
   // every panel edge glows: the whole ball is wrapped in neon strips
   const emissive = mk((g) => {
     g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
     g.lineJoin = 'round';
-    g.shadowColor = '#2fd8ff'; g.shadowBlur = 16;
-    g.strokeStyle = '#2fd8ff'; g.lineWidth = 6;
+    g.shadowColor = '#2fa8ff'; g.shadowBlur = 12;
+    g.strokeStyle = '#2f9bff'; g.lineWidth = 4.5;
     hexes(g, R, () => g.stroke());
-    g.shadowBlur = 0; g.strokeStyle = '#d4f6ff'; g.lineWidth = 2.2;
+    g.shadowBlur = 0; g.strokeStyle = '#bfe6ff'; g.lineWidth = 1.6;
     hexes(g, R, () => g.stroke());
   });
   return { map, emissive };
@@ -133,7 +133,7 @@ export class World {
     this.scene.add(this.sun, this.sun.target);
 
     const ballTex = ballTextures();
-    const ballMat = new THREE.MeshStandardMaterial({ map: ballTex.map, color: 0xffffff, roughness: 0.34, metalness: 0.8, envMapIntensity: 1.2, emissive: 0xffffff, emissiveMap: ballTex.emissive, emissiveIntensity: 1.6 });
+    const ballMat = new THREE.MeshStandardMaterial({ map: ballTex.map, color: 0xffffff, roughness: 0.28, metalness: 0.85, envMapIntensity: 1.0, emissive: 0xffffff, emissiveMap: ballTex.emissive, emissiveIntensity: 1.25 });
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 48, 32), ballMat);
     this.ball.castShadow = true;
     this.scene.add(this.ball);
@@ -141,7 +141,7 @@ export class World {
       const c = document.createElement('canvas'); c.width = c.height = 64;
       const g = c.getContext('2d')!;
       const gr = g.createRadialGradient(32, 32, 8, 32, 32, 32);
-      gr.addColorStop(0, 'rgba(90,210,255,0.22)'); gr.addColorStop(1, 'rgba(90,210,255,0)');
+      gr.addColorStop(0, 'rgba(70,160,255,0.12)'); gr.addColorStop(1, 'rgba(70,160,255,0)');
       g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
       return new THREE.CanvasTexture(c);
     })();

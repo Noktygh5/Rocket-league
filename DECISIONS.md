@@ -130,3 +130,5 @@ Mapped from stills of the reference gameplay video (full-resolution frames of th
 ## Round 8: ball reverted
 
 The reference-style ball (carbon weave, armour plates, 3D lens hubs) was reverted on request. The ball is again the dark gunmetal hex-panel sphere, with every panel edge now glowing neon cyan (a bright white core line inside a cyan glow) so the entire surface is covered in neon strips.
+
+Ball tweak: base is now near-black; hexagons are ~2.7x larger (about 10 panels around instead of ~25), with thin blue neon edges and a softer, bluer glow so it reads as a black ball lit by a few blue hexes.
