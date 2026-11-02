@@ -174,3 +174,19 @@ A fifth bot, `createBot('ultrahard', ...)` in `shared/src/bot/boss.ts`. It uses 
 **Not done:** flip resets, air dribbles, flicks, wall driving, half-flips (the flip locks out roll for 0.65 s in this sim), demolitions, and any model of the opponent's reaction inside the simulation.
 
 Lab scripts in `shared/scripts/`: `lab_stats.ts` (bot vs bot), `lab_profile.ts` (CPU per decision), `lab_aerial.ts`, `lab_moves.ts` (touch types), `lab_kickoff.ts`, `lab_pinch.ts`, `lab_rollout.ts` (cost of one simulated second).
+
+### Ultrahard Boss, round 2: tip-off, saves, efficiency (from a recording of a human beating the first boss)
+The recording showed three things: the boss lost the tip-off, it was not back when the ball came at its goal, and it hung back while the human held the ball. Measured in isolation (`scripts/lab_tipoff.ts`, `lab_saves.ts`):
+
+- **Tip-off was lost 40 times out of 40** to the Hard bot (first touch 3.01 s against never), and the ball ended 6,551 uu deep in the boss's half. Causes, in the order found: (1) it left the kickoff to grab a boost pad at 0.25 s; (2) the strike controller paced the run so it would arrive exactly at the planned touch time; (3) it steered to a lining-up point 800 uu behind the ball, so its flat-out run took 3.47 s against 2.97 s for a straight one; (4) the flip guard (ball within 620 uu) turned every early-flip candidate into a late one. A flip at 1,200-1,500 uu out reaches the ball at 2.91 s (`scripts/lab_kickrace.ts`), 0.1 s faster than Hard.
+- **Fix:** a dedicated kickoff routine. It drives flat out and straight (`Plan.rush`), measures its true arrival time by simulating the run, simulates the opponent's matching rush, and tries five flip timings (0.3-0.84 s before the touch) against three aims. Result: first touch 40/40, ball ends on the boss's attacking side 40/40, mean field position +4,723 uu.
+- **Opponent model inside the simulation.** Contested plays now simulate the opponent as a car that chases the first ball position it can reach and flips into it (plus car-car contact, including demolitions). Against the frozen first boss this alone took the result from a coin flip (37-11-32) to 73-4-3 (goals 213-51).
+- **Goalkeeper plan.** If a dangerous ball cannot be reached, the boss still drives flat out to where it will cross the line. Strike candidates for a threat are flat out too. Waiting in goal it saves 52 of 60 shots (87 percent; Hard saves 78 percent). Most conceded goals in the recording were positioning, not reflexes.
+- **Boost:** a pad that costs almost nothing is taken on a long run-up; while the ball is on its side the boss will not run to pads beyond itself or beyond the ball. Without that second rule the boss lost 0-62 to the first boss, so it is load bearing.
+- **Aerials:** backboard saves near its own goal are allowed, fast aerials (second jump spent on height) are a candidate, and a viable aerial gets a +150 preference. Neutral on strength, slightly more aerial touches.
+
+**Tried and reverted:** "defend first" (no pad detours while the ball is on its side or the opponent is nearer). It left the boss without boost and it went 40-14-26 with 59 goals conceded against the first boss.
+
+**Final measurements (headless):** against Hard, 80 two-minute matches: 62-63 wins, 13-16 draws, 2-4 losses, goals about 157-21; 24 five-minute matches: 23 wins, 1 draw, 0 losses, goals 132-10 (5.5 scored and 0.4 conceded per match). Against the frozen first boss (`scripts/boss_v1.ts`, run with `lab_h2h.ts`), 80 two-minute matches: 45 wins, 35 draws, 0 losses, goals 79-16; it is less decisive there because the first boss now loses every tip-off and defends deep. CPU: about 3.4 percent of one core, worst tick 11.8 ms.
+
+**Noise:** identical code against itself over 80 matches came out 37-11-32 (goals 216-178), so differences under about 8 percent in 80 matches mean nothing. Many of these runs were therefore done as 8 parallel batches of 10.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BOT_CONFIGS, GameSim, Phase, createBot, defaultConfig, runBotMatch } from '../src';
+import { ARENA, BOT_CONFIGS, GameSim, Phase, Prng, createBot, defaultConfig, placeCar, runBotMatch } from '../src';
 
 describe('ultrahard boss', () => {
   it('is built by createBot and has the same surface as the other bots', () => {
@@ -51,4 +51,51 @@ describe('ultrahard boss', () => {
     expect(car.lastTouchTick).toBeGreaterThanOrEqual(0);
     expect(maxZ).toBeGreaterThan(300); // it actually left the ground, not just a ground hit
   }, 60_000);
+
+  it('wins the tip-off against Hard: first to the ball and the ball ends up on its attacking side', () => {
+    let first = 0, ahead = 0;
+    const n = 6;
+    for (let i = 0; i < n; i++) {
+      const bossBlue = i % 2 === 0;
+      const sim = new GameSim({ ...defaultConfig([{ team: 0, name: 'x' }, { team: 1, name: 'y' }], 4000 + i), matchLength: 60, skipReplay: true });
+      const bi = bossBlue ? 0 : 1, hi = bossBlue ? 1 : 0;
+      const boss = createBot('ultrahard', sim, bi, 4000 + i), hard = createBot('hard', sim, hi, 4001 + i);
+      while (sim.phase !== Phase.Playing) sim.step();
+      let bossFirst = false, decided = false;
+      for (let t = 0; t < 6 * 120 && sim.phase === Phase.Playing; t++) {
+        boss.think(); hard.think(); sim.step();
+        if (!decided) {
+          if (sim.cars[bi].lastTouchTick >= 0) { bossFirst = true; decided = true; }
+          else if (sim.cars[hi].lastTouchTick >= 0) decided = true;
+        }
+      }
+      if (bossFirst) first++;
+      if (sim.ball.pos.y * (bossBlue ? 1 : -1) > 0) ahead++;
+    }
+    expect(first).toBeGreaterThanOrEqual(5);
+    expect(ahead).toBeGreaterThanOrEqual(5);
+  }, 120_000);
+
+  it('saves most shots when it is standing in goal', () => {
+    let saved = 0;
+    const n = 20;
+    for (let s = 0; s < n; s++) {
+      const rng = new Prng(7000 + s);
+      const sim = new GameSim({ ...defaultConfig([{ team: 0, name: 'keeper' }, { team: 1, name: 'shooter' }], 31 + s), matchLength: 120, skipReplay: true });
+      const keeper = createBot('ultrahard', sim, 0, 31 + s);
+      while (sim.phase !== Phase.Playing) sim.step();
+      placeCar(sim.cars[0], (rng.next() - 0.5) * 1200, -ARENA.halfLength + 900 + rng.next() * 1600, Math.PI / 2);
+      sim.cars[1].pos.x = 3500; sim.cars[1].pos.y = ARENA.halfLength - 600;
+      const sx = (rng.next() - 0.5) * 4000, sy = -300 - rng.next() * 2500;
+      const tx = (rng.next() - 0.5) * 2 * (ARENA.goal.halfWidth - 150), tz = 90 + rng.next() * 380;
+      const dx = tx - sx, dy = -ARENA.halfLength - sy, dz = tz - 100;
+      const dl = Math.hypot(dx, dy, dz), sp = 1800 + rng.next() * 2200;
+      sim.ball.pos.x = sx; sim.ball.pos.y = sy; sim.ball.pos.z = 100;
+      sim.ball.vel.x = dx / dl * sp; sim.ball.vel.y = dy / dl * sp; sim.ball.vel.z = dz / dl * sp;
+      const before = sim.score[1];
+      for (let i = 0; i < 120 * 6 && sim.score[1] === before; i++) { keeper.think(); sim.step(); }
+      if (sim.score[1] === before) saved++;
+    }
+    expect(saved).toBeGreaterThanOrEqual(14); // 70 percent; it stops about 87 percent in the lab
+  }, 120_000);
 });

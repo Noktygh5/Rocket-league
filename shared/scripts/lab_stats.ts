@@ -4,10 +4,11 @@ import { runBotMatch } from '../src/bot/headless';
 
 const a = (process.argv[2] ?? 'hard') as BotLevel, b = (process.argv[3] ?? 'hard') as BotLevel;
 const n = Number(process.argv[4] ?? 10), secs = Number(process.argv[5] ?? 120);
+const seedBase = Number(process.argv[7] ?? 500);
 let ga = 0, gb = 0, ta = 0, tb = 0, wa = 0, wb = 0, d = 0;
 for (let i = 0; i < n; i++) {
   const aBlue = i % 2 === 0;
-  const r = aBlue ? runBotMatch(a, b, secs, 500 + i) : runBotMatch(b, a, secs, 500 + i);
+  const r = aBlue ? runBotMatch(a, b, secs, seedBase + i) : runBotMatch(b, a, secs, seedBase + i);
   const sa = aBlue ? r.goals[0] : r.goals[1], sb = aBlue ? r.goals[1] : r.goals[0];
   if (process.argv[6] === 'v') console.log(`match ${i} (${a} ${aBlue ? 'blue' : 'orange'}): ${sa}-${sb}  touches ${aBlue ? r.touches[0] : r.touches[1]} vs ${aBlue ? r.touches[1] : r.touches[0]}`);
   ga += sa; gb += sb; ta += aBlue ? r.touches[0] : r.touches[1]; tb += aBlue ? r.touches[1] : r.touches[0];
