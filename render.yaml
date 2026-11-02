@@ -1,0 +1,19 @@
+# Render Blueprint: free web service in Singapore (nearest Render region to India).
+# Runs the game server and serves the built client from the same URL, so there is one link to share.
+# Free instances sleep after ~15 minutes with no traffic and wake on the next visit (about a minute).
+services:
+  - type: web
+    name: turboball-beta
+    runtime: node
+    region: singapore
+    plan: free
+    branch: beta-3v3
+    buildCommand: npm ci && npm run build --workspace shared && npm run build --workspace client
+    startCommand: STATIC_DIR=$PWD/client/dist npm run start --workspace server
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Key for the private feedback inbox at /feedback?key=...; shown in the Render dashboard.
+      - key: FEEDBACK_KEY
+        generateValue: true
