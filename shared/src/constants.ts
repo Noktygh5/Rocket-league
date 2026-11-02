@@ -143,6 +143,12 @@ export const CAR = {
     airLevelRate: 4.5,
     /** Extra angular damping (1/s) while self-levelling so the car settles instead of oscillating. */
     airLevelDamping: 1.6,
+    /** Blend rate (1/s) of the settle assist that rights a slow car resting tilted on a surface (nose-down, two wheels); 0 disables it. */
+    settle: 10,
+    /** Fastest settle rotation (rad/s). */
+    settleRate: 4.5,
+    /** Settle only applies below this speed (uu/s), so it never fights a real in-air manoeuvre. */
+    settleMaxSpeed: 400,
   },
 
   air: {

@@ -132,6 +132,7 @@ const tmp = new Vec3();
 const tmp2 = new Vec3();
 const rr = new Vec3();
 const nn = new Vec3();
+const sN = new Vec3(); // surface the car is resting against while not on four wheels
 const fwdV = new Vec3();
 const leftV = new Vec3();
 const upV = new Vec3();
@@ -328,6 +329,17 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
     if (c.autoRight && (c.onGround || m[8] > 0.96)) { c.autoRight = false; c.tippedTime = 0; c.angVel.x *= 0.3; c.angVel.y *= 0.3; c.angVel.z *= 0.3; }
   }
 
+  // ---- settle: slow, touching a surface on fewer than three wheels (nose-down, leaning on two wheels) -------
+  // The car counts as airborne there, so W would pitch it further forward. Instead it rights itself onto its wheels.
+  let settle = false;
+  if (CAR.recovery.settle > 0 && !c.onGround && !c.autoRight && !c.flipActive && c.pitchLock <= 0 && !c.jumpHeld &&
+      c.groundLockout <= 0 && (contacts > 0 || c.hitboxContact) &&
+      c.vel.x * c.vel.x + c.vel.y * c.vel.y + c.vel.z * c.vel.z < CAR.recovery.settleMaxSpeed * CAR.recovery.settleMaxSpeed) {
+    if (c.hitboxContact) vec3.copy(sN, c.hitboxNormal); else vec3.normalize(sN, nn);
+    const facing = upV.x * sN.x + upV.y * sN.y + upV.z * sN.z;
+    settle = facing > 0.1 && facing < 0.995;
+  }
+
   // ---- gravity --------------------------------------------------------------------------------
   c.vel.z += g * dt;
 
@@ -509,8 +521,8 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
     let lz = m[2] * wx + m[5] * wy + m[8] * wz; // yaw axis (up)
 
     const flipping = c.flipActive;
-    const pIn = c.pitchLock > 0 || flipping ? 0 : inp.pitch;
-    const rIn = flipping ? 0 : inp.roll;
+    const pIn = c.pitchLock > 0 || flipping || settle ? 0 : inp.pitch;
+    const rIn = flipping || settle ? 0 : inp.roll;
     const yIn = inp.yaw !== 0 ? inp.yaw : inp.steer;
 
     // after a flip the rotation is allowed to coast so the car completes one full turn
@@ -565,6 +577,18 @@ export function stepCar(c: CarState, inp: CarInput, dt: number = PHYSICS.dt): vo
       const k = Math.min(1, CAR.recovery.airLevel * dt);
       c.angVel.x += (ex * rate - c.angVel.x) * k; c.angVel.y += (ey * rate - c.angVel.y) * k; c.angVel.z += (ez * rate - c.angVel.z) * k;
     }
+  }
+
+  // ---- settle: swing the roof toward the surface normal, pivoting on whatever is touching ------------
+  if (settle) {
+    const ex = upV.y * sN.z - upV.z * sN.y, ey = upV.z * sN.x - upV.x * sN.z, ez = upV.x * sN.y - upV.y * sN.x;
+    const sin = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1;
+    const theta = Math.acos(Math.max(-1, Math.min(1, upV.x * sN.x + upV.y * sN.y + upV.z * sN.z)));
+    const rate = Math.min(CAR.recovery.settleRate, 1.2 + 3.0 * theta);
+    const k = Math.min(1, CAR.recovery.settle * dt);
+    c.angVel.x += (ex / sin * rate - c.angVel.x) * k;
+    c.angVel.y += (ey / sin * rate - c.angVel.y) * k;
+    c.angVel.z += (ez / sin * rate - c.angVel.z) * k;
   }
 
   // ---- limits + integration -------------------------------------------------------------------
