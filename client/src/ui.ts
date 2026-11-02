@@ -1,5 +1,6 @@
 import { BotLevel, CAMERA_DEFAULTS } from '@turboball/shared';
 import { escapeHtml } from './hud';
+import { serverUrl } from './net/transport';
 import { OfflineGame } from './offline';
 import { ACTIONS, ACTION_LABELS, Action, Quality, keyLabel, resetCamera, saveSettings, settings } from './settings';
 import type { RenderSnap } from './snap';
@@ -72,7 +73,47 @@ export class App {
       bigBtn('PLAY ONLINE', () => (this.onlineMenu ? this.onlineMenu() : this.toast('Online mode is not available in this build'))),
       bigBtn('SETTINGS', () => this.settingsScreen(() => this.mainMenu())),
       bigBtn('CONTROLS', () => this.controlsScreen()),
+      bigBtn('GIVE NIKHIL FEEDBACK', () => this.feedbackScreen(), true),
     ));
+  }
+
+  /** Free-text feedback box; messages land in the server's private inbox. */
+  feedbackScreen(): void {
+    const name = h('input', { type: 'text', maxlength: 40, placeholder: 'Your name (optional)', value: settings.name === 'Player' ? '' : settings.name }) as HTMLInputElement;
+    const msg = h('textarea', { maxlength: 1000, rows: 8, placeholder: 'What did you like? What felt off? Any bugs or ideas?' }) as HTMLTextAreaElement;
+    const status = h('div', { class: 'sub' }, '');
+    const sendBtn = h('button', { class: 'big' }, h('span', null, 'SEND'));
+    let sending = false;
+    const send = async (): Promise<void> => {
+      if (sending) return;
+      const message = msg.value.trim();
+      if (message.length < 3) { status.textContent = 'Write a few words first.'; return; }
+      sending = true; status.textContent = 'Sending…';
+      try {
+        const r = await fetch(`${serverUrl().replace(/^ws/, 'http')}/api/feedback`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: name.value.trim(), message }),
+        });
+        const body = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+        if (r.ok && body.ok) {
+          this.screen(this.page(h('h2', null, 'THANKS!'), h('div', { class: 'sub' }, 'Your feedback was sent to Nikhil.'), bigBtn('BACK', () => this.mainMenu())));
+          return;
+        }
+        status.textContent = body.error ?? 'Could not send. Try again in a moment.';
+      } catch {
+        status.textContent = 'Could not reach the server. Try again in a moment.';
+      }
+      sending = false;
+    };
+    sendBtn.addEventListener('click', () => { void send(); });
+    this.screen(this.page(
+      h('h2', null, 'GIVE NIKHIL FEEDBACK'),
+      h('div', { class: 'sub' }, 'Tell me what you think. I read every message.'),
+      h('div', { class: 'panel feedback' }, name, msg),
+      status,
+      sendBtn,
+      bigBtn('BACK', () => this.mainMenu(), true),
+    ));
+    setTimeout(() => msg.focus(), 0);
   }
 
   botSetup(): void {

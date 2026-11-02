@@ -28,6 +28,10 @@ coverage
 .vscode
 *.swp
 
+# player feedback (private messages) and the key that unlocks the inbox
+feedback*.jsonl
+.feedback-key
+
 # reference footage and screen recordings (large)
 *.mov
 *.mp4

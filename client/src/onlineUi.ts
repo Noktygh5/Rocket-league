@@ -36,7 +36,9 @@ export class OnlineUi {
 
   menu(prefill = ''): void {
     this.leaveRoom(false);
-    const codeIn = h('input', { type: 'text', maxlength: 5, placeholder: 'ROOM CODE', value: prefill, style: 'text-transform:uppercase;letter-spacing:6px;width:180px;font-size:22px' }) as HTMLInputElement;
+    const codeIn = h('input', { type: 'text', maxlength: 5, placeholder: 'CODE', value: prefill, autocomplete: 'off', spellcheck: false }) as HTMLInputElement;
+    const modeBtn = (mode: Mode, title: string, note: string): HTMLElement =>
+      h('button', { class: 'mode', onClick: () => this.connect({ create: mode }) }, h('b', null, title), h('small', null, note));
     const tryJoin = (): void => {
       const c = codeIn.value.trim().toUpperCase();
       if (c.length === 5) this.connect({ join: c }); else this.app.toast('Enter the 5-letter room code');
@@ -46,16 +48,20 @@ export class OnlineUi {
     this.app.screen(h('div', { class: 'screen' }, h('div', { class: 'col' },
       h('h2', null, 'PLAY ONLINE'),
       h('div', { class: 'panel' },
-        h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Your name'), this.nameInput()),
-        h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Create a private room'),
-          h('button', { class: 'small go', onClick: () => this.connect({ create: 1 }) }, '1 v 1'),
-          h('button', { class: 'small go', onClick: () => this.connect({ create: 2 }) }, '2 v 2'),
-          h('button', { class: 'small go', onClick: () => this.connect({ create: 3 }) }, '3 v 3 BETA')),
-        h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Join with a code'), codeIn,
-          h('button', { class: 'small', onClick: tryJoin }, 'JOIN'))),
+        h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Your name'), this.nameInput())),
+      h('div', { class: 'panel' },
+        h('h3', null, 'CREATE A ROOM'),
+        h('p', { class: 'hint' }, 'Pick a size. You get a 5-letter code to send to your friends.'),
+        h('div', { class: 'modes' },
+          modeBtn(1, '1 v 1', 'Standard map'),
+          modeBtn(2, '2 v 2', 'Standard map'),
+          modeBtn(3, '3 v 3', 'BETA · bigger map'))),
+      h('div', { class: 'panel' },
+        h('h3', null, 'JOIN A ROOM'),
+        h('p', { class: 'hint' }, 'Got a code from a friend? Type it here.'),
+        h('div', { class: 'joinrow' }, codeIn, h('button', { class: 'small', onClick: tryJoin }, 'JOIN'))),
       h('button', { class: 'big sec', onClick: () => this.app.mainMenu() }, h('span', null, 'BACK')))));
     if (prefill) this.app.toast(`Room ${prefill}: enter your name and press JOIN`);
-    else setTimeout(() => codeIn.focus(), 0);
   }
 
   private connect(o: { create?: Mode; join?: string }): void {

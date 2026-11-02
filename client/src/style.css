@@ -86,7 +86,19 @@ button.small, select, input[type=text] { font: inherit; color: var(--ink); backg
 button.small:hover { background: rgba(255,255,255,.18); }
 button.small.on { background: var(--blue); border-color: var(--blue2); }
 button.small.go { background: #19a05a; border-color: #4be08f; font-weight: 700; }
-input[type=text] { cursor: text; }
+input[type=text], textarea { cursor: text; }
+textarea { font: inherit; color: var(--ink); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); padding: 10px 14px; resize: vertical; width: 100%; box-sizing: border-box; }
+.panel.feedback { display: flex; flex-direction: column; gap: 10px; }
+.panel h3 { margin: 0 0 4px; letter-spacing: 2px; }
+.hint { margin: 0 0 12px; opacity: .7; font-size: 15px; }
+.modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+button.mode { font: inherit; color: var(--ink); background: #19a05a; border: 1px solid #4be08f; padding: 14px 10px; cursor: pointer; text-align: center; display: flex; flex-direction: column; gap: 2px; }
+button.mode b { font-size: 24px; letter-spacing: 1px; } button.mode small { opacity: .85; font-size: 13px; }
+button.mode:hover, button.mode:focus-visible { background: #1fbb6b; outline: none; }
+.joinrow { display: flex; gap: 10px; flex-wrap: wrap; }
+.joinrow input[type=text] { flex: 1; min-width: 200px; font-size: 24px; letter-spacing: 8px; text-transform: uppercase; }
+.joinrow button.small { font-size: 18px; font-weight: 700; padding: 8px 26px; }
+@media (max-width: 560px) { .modes { grid-template-columns: 1fr; } }
 h2 { margin: 0 0 6px; letter-spacing: 3px; }
 .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .lbl { min-width: 190px; opacity: .85; }

@@ -4,6 +4,7 @@ import { extname, join, normalize, resolve } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ClientMsg, PROTOCOL_VERSION } from '@turboball/shared';
 import { Player, Room, cleanName } from './room';
+import { feedbackInboxPath, handleFeedback } from './feedback';
 
 const port = Number(process.env.PORT ?? 8080);
 const allowed = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -42,6 +43,7 @@ const http = createServer((req, res) => {
     res.end(JSON.stringify({ ok: true, rooms: rooms.size, protocol: PROTOCOL_VERSION }));
     return;
   }
+  if (handleFeedback(req, res, url)) return;
   if (staticDir) {
     let file = normalize(join(staticDir, url === '/' ? 'index.html' : url));
     if (!file.startsWith(staticDir)) { res.writeHead(403).end(); return; }
@@ -130,4 +132,7 @@ setInterval(() => {
   }
 }, 10_000).unref();
 
-http.listen(port, () => console.log(`turboball server listening on :${port}${staticDir ? ` (serving ${staticDir})` : ''}`));
+http.listen(port, () => {
+  console.log(`turboball server listening on :${port}${staticDir ? ` (serving ${staticDir})` : ''}`);
+  console.log(`feedback inbox: http://localhost:${port}${feedbackInboxPath}`);
+});
