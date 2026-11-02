@@ -251,7 +251,7 @@ export const TICKS_PER_SEC = PHYSICS.tickRate;
 export interface LobbyPlayer { id: number; name: string; team: 0 | 1; ready: boolean; host: boolean }
 
 export type ClientMsg =
-  | { t: 'create'; name: string; mode: 1 | 2; v: number }
+  | { t: 'create'; name: string; mode: 1 | 2 | 3; v: number }
   | { t: 'join'; name: string; code: string; v: number }
   | { t: 'team'; team: 0 | 1 }
   | { t: 'ready'; ready: boolean }
@@ -262,7 +262,7 @@ export type ClientMsg =
 
 export type ServerMsg =
   | { t: 'welcome'; id: number; code: string; v: number }
-  | { t: 'lobby'; code: string; mode: 1 | 2; hostId: number; state: 'lobby' | 'playing' | 'ended'; players: LobbyPlayer[] }
+  | { t: 'lobby'; code: string; mode: 1 | 2 | 3; hostId: number; state: 'lobby' | 'playing' | 'ended'; players: LobbyPlayer[] }
   | { t: 'start'; you: number; players: { name: string; team: 0 | 1 }[]; seed: number; matchLength: number; tick: number }
   | { t: 'ev'; type: string; a: number; b: number; v: number }
   | { t: 'stats'; stats: { goals: number; saves: number; shots: number; demos: number; score: number }[] }

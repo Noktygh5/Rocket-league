@@ -97,7 +97,7 @@ wss.on('connection', (ws: WebSocket) => {
           if (rooms.size >= MAX_ROOMS) { err('Server is full, try again later'); return; }
           const code = newCode();
           if (!code) { err('Could not allocate a room'); return; }
-          const mode = m.mode === 2 ? 2 : 1;
+          const mode = m.mode === 3 ? 3 : m.mode === 2 ? 2 : 1;
           room = new Room(code, mode, (r) => { setTimeout(() => { if (r.players.size === 0 || ![...r.players.values()].some((p) => p.connected)) rooms.delete(r.code); }, 5000); });
           rooms.set(code, room);
         } else {

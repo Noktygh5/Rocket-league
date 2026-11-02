@@ -82,15 +82,16 @@ function canvasTex(w: number, h: number, draw: (g: CanvasRenderingContext2D) => 
 }
 
 function floorTexture(): THREE.CanvasTexture {
-  const w = 2048, h = 2560; // aspect 8192 : 10240
+  const w = 2560, h = 3200; // same aspect as the field (halfWidth : halfLength = 4 : 5)
+  const S = L / 5120, Wo = W / S, Lo = L / S; // markings below are written in standard-field units
   return canvasTex(w, h, (g) => {
     let seed = 3;
     const rnd = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
-    const px = (x: number) => ((x + W) / (2 * W)) * w;
-    const py = (y: number) => ((L - y) / (2 * L)) * h; // +y (orange) at the top
+    const px = (x: number) => ((x * S + W) / (2 * W)) * w;
+    const py = (y: number) => ((L - y * S) / (2 * L)) * h; // +y (orange) at the top
     g.fillStyle = '#2a3b1f'; g.fillRect(0, 0, w, h);
     // mowing stripes across the pitch
-    const stripe = (700 / (2 * L)) * h;
+    const stripe = (700 / (2 * Lo)) * h;
     for (let i = 0; i * stripe < h; i++) { g.fillStyle = i & 1 ? 'rgba(120,150,70,0.10)' : 'rgba(0,10,0,0.10)'; g.fillRect(0, i * stripe, w, stripe); }
     // worn patches and soft blotches
     for (let i = 0; i < 55; i++) {
@@ -106,7 +107,7 @@ function floorTexture(): THREE.CanvasTexture {
       g.fillRect(rnd() * w, rnd() * h, 1, 1 + rnd() * 3);
     }
     // team-coloured lanes on the grass (from the field map): orange half and blue half
-    const lane = (x: number, y0: number, y1: number, col: string): void => { g.fillStyle = col; g.fillRect(px(x) - (100 / (2 * W)) * w, py(y1), (200 / (2 * W)) * w, py(y0) - py(y1)); };
+    const lane = (x: number, y0: number, y1: number, col: string): void => { g.fillStyle = col; g.fillRect(px(x) - (100 / (2 * Wo)) * w, py(y1), (200 / (2 * Wo)) * w, py(y0) - py(y1)); };
     for (const x of [-3300, -2400, -1500, -700, 700, 1500, 2400, 3300]) { lane(x, 800, 3900, 'rgba(255,125,40,0.40)'); lane(x, -3900, -800, 'rgba(60,115,255,0.40)'); }
     // dark angular zones in front of each goal
     for (const sg of [-1, 1]) {
@@ -115,26 +116,26 @@ function floorTexture(): THREE.CanvasTexture {
       g.strokeStyle = sg < 0 ? 'rgba(90,150,255,0.8)' : 'rgba(255,160,80,0.8)'; g.lineWidth = 7; g.stroke();
     }
     // centre hub
-    g.fillStyle = 'rgba(8,10,14,0.65)'; g.beginPath(); g.arc(px(0), py(0), (560 / (2 * W)) * w, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = 'rgba(190,200,215,0.85)'; g.lineWidth = 9; g.beginPath(); g.arc(px(0), py(0), (560 / (2 * W)) * w, 0, Math.PI * 2); g.stroke();
+    g.fillStyle = 'rgba(8,10,14,0.65)'; g.beginPath(); g.arc(px(0), py(0), (560 / (2 * Wo)) * w, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(190,200,215,0.85)'; g.lineWidth = 9; g.beginPath(); g.arc(px(0), py(0), (560 / (2 * Wo)) * w, 0, Math.PI * 2); g.stroke();
     g.strokeStyle = 'rgba(220,225,235,0.55)'; g.lineWidth = 8; g.beginPath(); g.moveTo(px(0), py(-3900)); g.lineTo(px(0), py(3900)); g.stroke();
     // centre circle region is slightly bare / darker, like the reference
-    const cg = g.createRadialGradient(px(0), py(0), 0, px(0), py(0), (1000 / (2 * W)) * w);
+    const cg = g.createRadialGradient(px(0), py(0), 0, px(0), py(0), (1000 / (2 * Wo)) * w);
     cg.addColorStop(0, 'rgba(60,45,25,0.45)'); cg.addColorStop(0.8, 'rgba(30,38,20,0.25)'); cg.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = cg; g.fillRect(0, 0, w, h);
     g.lineCap = 'round';
     g.lineWidth = 11; g.strokeStyle = 'rgba(232,232,216,0.88)';
     g.beginPath(); g.moveTo(0, py(0)); g.lineTo(w, py(0)); g.stroke();
-    g.beginPath(); g.arc(px(0), py(0), (1000 / (2 * W)) * w, 0, Math.PI * 2); g.stroke();
+    g.beginPath(); g.arc(px(0), py(0), (1000 / (2 * Wo)) * w, 0, Math.PI * 2); g.stroke();
     g.fillStyle = 'rgba(232,232,216,0.9)';
     g.beginPath(); g.arc(px(0), py(0), 16, 0, Math.PI * 2); g.fill();
     for (const s of [-1, 1]) {
       g.strokeStyle = 'rgba(232,232,216,0.85)';
-      g.beginPath(); g.rect(px(-1500), py(s * L), (3000 / (2 * W)) * w, (1500 / (2 * L)) * h * (s < 0 ? -1 : 1)); g.stroke();
-      g.beginPath(); g.arc(px(0), py(s * 2800), (700 / (2 * W)) * w, 0, Math.PI * 2); g.stroke();
+      g.beginPath(); g.rect(px(-1500), py(s * Lo), (3000 / (2 * Wo)) * w, (1500 / (2 * Lo)) * h * (s < 0 ? -1 : 1)); g.stroke();
+      g.beginPath(); g.arc(px(0), py(s * 2800), (700 / (2 * Wo)) * w, 0, Math.PI * 2); g.stroke();
     }
     g.strokeStyle = 'rgba(232,232,216,0.5)'; g.setLineDash([46, 38]); g.lineWidth = 8;
-    for (const y of [-2560, 2560]) { g.beginPath(); g.moveTo(px(-W), py(y)); g.lineTo(px(W), py(y)); g.stroke(); }
+    for (const y of [-2560, 2560]) { g.beginPath(); g.moveTo(px(-Wo), py(y)); g.lineTo(px(Wo), py(y)); g.stroke(); }
     g.setLineDash([]);
   });
 }

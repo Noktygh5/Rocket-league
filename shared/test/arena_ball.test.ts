@@ -17,7 +17,7 @@ describe('arena sdf', () => {
     near(arena.sdf(2000, -2000, 500), 500, 1e-6);
   });
   it('is negative outside and symmetric', () => {
-    expect(arena.sdf(5000, 0, 500)).toBeLessThan(0);
+    expect(arena.sdf(ARENA.halfWidth + 900, 0, 500)).toBeLessThan(0);
     expect(arena.sdf(0, 0, -10)).toBeLessThan(0);
     near(arena.sdf(1234, 2345, 345), arena.sdf(-1234, -2345, 345), 1e-9);
   });
@@ -38,9 +38,10 @@ describe('arena sdf', () => {
     near(arena.sdf(x, y, 1000), 0, 1e-6);
   });
   it('has a goal opening in the back wall and solid wall elsewhere', () => {
-    expect(arena.sdf(0, 5500, 300)).toBeGreaterThan(100); // inside goal
-    expect(arena.sdf(2000, 5300, 300)).toBeLessThan(0); // behind solid wall
-    expect(arena.sdf(0, 5500, 700)).toBeLessThan(0); // above goal roof
+    const L = ARENA.halfLength;
+    expect(arena.sdf(0, L + 380, 300)).toBeGreaterThan(100); // inside goal
+    expect(arena.sdf(2000, L + 180, 300)).toBeLessThan(0); // behind solid wall
+    expect(arena.sdf(0, L + 380, 700)).toBeLessThan(0); // above goal roof
   });
   it('raycast hits the floor at the right distance with an upward normal', () => {
     const n = new Vec3();
@@ -97,7 +98,7 @@ describe('ball physics', () => {
 
   it('rolls up a wall curve and stays inside the arena', () => {
     withBall((b) => {
-      b.pos.x = 3000; b.pos.z = BALL.radius;
+      b.pos.x = ARENA.halfWidth - 1100; b.pos.z = BALL.radius;
       b.vel.x = 2000;
       let maxZ = 0;
       for (let i = 0; i < 120 * 2; i++) {
@@ -143,13 +144,13 @@ describe('ball physics', () => {
 
   it('enters the goal through the opening but bounces off the wall above the crossbar', () => {
     withBall((b) => {
-      b.pos.y = 4500; b.pos.z = 200; b.vel.y = 3000;
+      b.pos.y = ARENA.halfLength - 620; b.pos.z = 200; b.vel.y = 3000;
       let maxY = 0;
       for (let i = 0; i < 120; i++) { stepBall(b, dt); maxY = Math.max(maxY, b.pos.y); }
       expect(maxY).toBeGreaterThan(ARENA.halfLength + BALL.radius);
     });
     withBall((b) => {
-      b.pos.y = 4500; b.pos.z = 900; b.vel.y = 3000;
+      b.pos.y = ARENA.halfLength - 620; b.pos.z = 900; b.vel.y = 3000;
       let maxY = 0;
       for (let i = 0; i < 120; i++) { stepBall(b, dt); maxY = Math.max(maxY, b.pos.y); }
       expect(maxY).toBeLessThan(ARENA.halfLength - BALL.radius + 5);

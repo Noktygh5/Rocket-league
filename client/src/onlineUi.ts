@@ -4,7 +4,10 @@ import { OnlineGame, StartInfo } from './online';
 import { settings, saveSettings } from './settings';
 import { App, h } from './ui';
 
-interface LobbyState { code: string; mode: 1 | 2; hostId: number; state: string; players: LobbyPlayer[] }
+type Mode = 1 | 2 | 3;
+const MODE_LABEL: Record<Mode, string> = { 1: '1 v 1', 2: '2 v 2', 3: '3 v 3 BETA' };
+
+interface LobbyState { code: string; mode: Mode; hostId: number; state: string; players: LobbyPlayer[] }
 
 /** Online menu, room lobby and in-match lifecycle. */
 export class OnlineUi {
@@ -13,7 +16,7 @@ export class OnlineUi {
   private lobby: LobbyState | null = null;
   private game: OnlineGame | null = null;
   private pendingJoin: string | null = null;
-  private pendingCreate: 1 | 2 | null = null;
+  private pendingCreate: Mode | null = null;
 
   constructor(private app: App) {
     app.onlineMenu = () => this.menu();
@@ -34,20 +37,28 @@ export class OnlineUi {
   menu(prefill = ''): void {
     this.leaveRoom(false);
     const codeIn = h('input', { type: 'text', maxlength: 5, placeholder: 'ROOM CODE', value: prefill, style: 'text-transform:uppercase;letter-spacing:6px;width:180px;font-size:22px' }) as HTMLInputElement;
+    const tryJoin = (): void => {
+      const c = codeIn.value.trim().toUpperCase();
+      if (c.length === 5) this.connect({ join: c }); else this.app.toast('Enter the 5-letter room code');
+    };
+    codeIn.addEventListener('input', () => { codeIn.value = codeIn.value.toUpperCase().replace(/[^A-Z]/g, ''); });
+    codeIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') tryJoin(); });
     this.app.screen(h('div', { class: 'screen' }, h('div', { class: 'col' },
       h('h2', null, 'PLAY ONLINE'),
       h('div', { class: 'panel' },
         h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Your name'), this.nameInput()),
         h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Create a private room'),
           h('button', { class: 'small go', onClick: () => this.connect({ create: 1 }) }, '1 v 1'),
-          h('button', { class: 'small go', onClick: () => this.connect({ create: 2 }) }, '2 v 2')),
+          h('button', { class: 'small go', onClick: () => this.connect({ create: 2 }) }, '2 v 2'),
+          h('button', { class: 'small go', onClick: () => this.connect({ create: 3 }) }, '3 v 3 BETA')),
         h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Join with a code'), codeIn,
-          h('button', { class: 'small', onClick: () => { const c = codeIn.value.trim().toUpperCase(); if (c.length === 5) this.connect({ join: c }); else this.app.toast('Enter the 5-letter room code'); } }, 'JOIN'))),
+          h('button', { class: 'small', onClick: tryJoin }, 'JOIN'))),
       h('button', { class: 'big sec', onClick: () => this.app.mainMenu() }, h('span', null, 'BACK')))));
     if (prefill) this.app.toast(`Room ${prefill}: enter your name and press JOIN`);
+    else setTimeout(() => codeIn.focus(), 0);
   }
 
-  private connect(o: { create?: 1 | 2; join?: string }): void {
+  private connect(o: { create?: Mode; join?: string }): void {
     this.pendingCreate = o.create ?? null;
     this.pendingJoin = o.join ?? null;
     this.app.screen(h('div', { class: 'loading' }, 'CONNECTING…'));
@@ -69,7 +80,7 @@ export class OnlineUi {
     switch (m.t) {
       case 'welcome': this.myId = Number(m.id); break;
       case 'lobby':
-        this.lobby = { code: String(m.code), mode: m.mode as 1 | 2, hostId: Number(m.hostId), state: String(m.state), players: m.players as LobbyPlayer[] };
+        this.lobby = { code: String(m.code), mode: m.mode as Mode, hostId: Number(m.hostId), state: String(m.state), players: m.players as LobbyPlayer[] };
         if (!this.game) this.renderLobby();
         break;
       case 'start': this.startMatch(m as unknown as StartInfo); break;
@@ -90,13 +101,14 @@ export class OnlineUi {
       const ps = l.players.filter((p) => p.team === team);
       const slots: HTMLElement[] = ps.map((p) => h('div', { class: 'slot' + (p.id === this.myId ? ' me' : '') },
         h('span', null, `${p.name}${p.host ? ' ★' : ''}`), h('span', null, p.ready || p.host ? '✔ READY' : '…')));
-      const cap = l.mode === 1 ? 1 : 2;
-      for (let i = ps.length; i < cap; i++) slots.push(h('div', { class: 'slot empty' }, 'Waiting for player…'));
+      const cap = l.mode;
+      for (let i = ps.length; i < cap; i++) slots.push(h('div', { class: 'slot empty' }, 'Open slot'));
+      const canSwitch = l.mode > 1 && me && me.team !== team && ps.length < cap;
       return h('div', { class: `team ${team === 0 ? 'b' : 'o'}` }, h('h3', null, team === 0 ? 'BLUE' : 'ORANGE'), ...slots,
-        l.mode === 2 && me && me.team !== team ? h('button', { class: 'small', onClick: () => conn.sendJson({ t: 'team', team }) }, 'JOIN TEAM') : null);
+        canSwitch ? h('button', { class: 'small', onClick: () => conn.sendJson({ t: 'team', team }) }, 'JOIN TEAM') : null);
     };
     this.app.screen(h('div', { class: 'screen' }, h('div', { class: 'col' },
-      h('h2', null, `ROOM · ${l.mode === 1 ? '1 v 1' : '2 v 2'}`),
+      h('h2', null, `ROOM · ${MODE_LABEL[l.mode]}`),
       h('div', { class: 'panel' },
         h('div', { class: 'code' }, l.code),
         h('div', { class: 'row' },

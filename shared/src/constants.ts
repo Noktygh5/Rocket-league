@@ -2,6 +2,9 @@
 // Sim axes: X right, Y toward Orange goal, Z up. Curves are flat [x0, y0, x1, y1, ...] tables
 // consumed by `curve()` in math/scalar.ts.
 
+/** Beta 3v3 map: the standard field (8192 x 10240) scaled in plan view. Goals, ceiling and ramps keep their size. */
+export const MAP_SCALE = 1.5;
+
 export const PHYSICS = {
   /** Fixed tick rate. */
   tickRate: 120,
@@ -173,7 +176,7 @@ export const CAR = {
 
   demo: {
     /** Respawn spots (blue; orange mirrors them), cycled by slot. */
-    respawnSpots: [[-2304, -4608], [2304, -4608], [-2688, -4608], [2688, -4608]],
+    respawnSpots: [[-2304, -4608], [2304, -4608], [-2688, -4608], [2688, -4608]].map(([x, y]) => [x * MAP_SCALE, y * MAP_SCALE]),
     /** Attacker speed required for a demolition. */
     minSpeed: 2200,
     respawnTime: 3,
@@ -205,8 +208,8 @@ export const BALL = {
 };
 
 export const ARENA = {
-  halfWidth: 4096,
-  halfLength: 5120,
+  halfWidth: 4096 * MAP_SCALE,
+  halfLength: 5120 * MAP_SCALE,
   ceilingHeight: 2044,
   /** Floor-wall and wall-ceiling ramp radius. */
   rampRadius: 256,
@@ -216,8 +219,8 @@ export const ARENA = {
     halfWidth: 893,
     height: 642.775,
     depth: 880,
-    /** Net extends to |y| = backY. */
-    backY: 6000,
+    /** Net extends to |y| = backY (goal line plus depth). */
+    backY: 5120 * MAP_SCALE + 880,
     postRadius: 20,
   },
 };
@@ -227,25 +230,28 @@ export const PADS = {
   small: { amount: 12, respawn: 4, radius: 144, height: 165 },
   /** Base positions; mirrored on both axes (zero coordinates are not duplicated). */
   largeBase: [
-    [3072, 4096],
+    [3072 * MAP_SCALE, 4096 * MAP_SCALE],
   ],
   smallBase: [
-    [0, 4240],
-    [1788, 2300],
-    [2048, 1036],
-    [0, 1024],
-    [1024, 0],
+    [0, 4240 * MAP_SCALE],
+    [1788 * MAP_SCALE, 2300 * MAP_SCALE],
+    [2048 * MAP_SCALE, 1036 * MAP_SCALE],
+    [0, 1024 * MAP_SCALE],
+    [1024 * MAP_SCALE, 0],
+    // extra pads so six players are not starved on the larger field
+    [3200, 0],
+    [1536, 5200],
   ],
 };
 
 export const SPAWN = {
   /** Blue kickoff spots (x, y, yaw). Orange mirrors (x, y, yaw) through the origin. */
   kickoff: [
-    { x: -2048, y: -2560, yaw: 0.25 * Math.PI },
-    { x: 2048, y: -2560, yaw: 0.75 * Math.PI },
-    { x: -256, y: -3840, yaw: 0.5 * Math.PI },
-    { x: 256, y: -3840, yaw: 0.5 * Math.PI },
-    { x: 0, y: -4608, yaw: 0.5 * Math.PI },
+    { x: -2048 * MAP_SCALE, y: -2560 * MAP_SCALE, yaw: 0.25 * Math.PI },
+    { x: 2048 * MAP_SCALE, y: -2560 * MAP_SCALE, yaw: 0.75 * Math.PI },
+    { x: -256 * MAP_SCALE, y: -3840 * MAP_SCALE, yaw: 0.5 * Math.PI },
+    { x: 256 * MAP_SCALE, y: -3840 * MAP_SCALE, yaw: 0.5 * Math.PI },
+    { x: 0, y: -4608 * MAP_SCALE, yaw: 0.5 * Math.PI },
   ],
   /** Car body-origin height at spawn. */
   z: 17,
@@ -279,7 +285,7 @@ export const NET = {
   inputRedundancy: 3,
   jitterBufferTicks: 2,
   interpDelaySnapshots: 2,
-  maxPlayersPerRoom: 4,
+  maxPlayersPerRoom: 6,
 };
 
 /** Expands a half-field table into all mirrored positions. */

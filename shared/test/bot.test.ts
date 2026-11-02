@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { BallPath, BallState, BOT_CONFIGS, predictBall, runBotMatch } from '../src';
+import { ARENA, BallPath, BallState, BOT_CONFIGS, predictBall, runBotMatch } from '../src';
 
 describe('ball prediction', () => {
   it('matches the real ball physics and detects goals', () => {
     const b = new BallState();
-    b.pos.y = 3000; b.pos.z = 200; b.vel.y = 3000;
+    b.pos.y = ARENA.halfLength - 2120; b.pos.z = 200; b.vel.y = 3000;
     const p = new BallPath();
     predictBall(p, b, 3, 2);
     expect(p.n).toBeGreaterThan(100);

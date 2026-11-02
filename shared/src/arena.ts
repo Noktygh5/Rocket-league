@@ -5,7 +5,7 @@ import type { Vec3 } from './math/vec3';
 // Playable volume = rounded box (plan corners radius cornerRadius, floor/ceiling ramps radius
 // rampRadius) unioned with a goal box behind each back wall. Symmetric in x and y.
 
-const GOAL_Y_MIN = 4820; // goal box overlaps the main volume so the union has no seam
+const GOAL_Y_MIN = ARENA.halfLength - 300; // goal box overlaps the main volume so the union has no seam
 
 /** Plan-view inside distance to the side/back walls (positive inside). */
 function planInside(ax: number, ay: number): number {

@@ -48,9 +48,10 @@ export class Room {
   private matchIndex = 0;
   private forfeitTimer: NodeJS.Timeout | null = null;
 
-  constructor(readonly code: string, readonly mode: 1 | 2, private onEmpty: (r: Room) => void) {}
+  /** `mode` is the team size: 1 = 1v1, 2 = 2v2, 3 = 3v3 (beta, larger map). */
+  constructor(readonly code: string, readonly mode: 1 | 2 | 3, private onEmpty: (r: Room) => void) {}
 
-  get capacity(): number { return this.mode === 1 ? 2 : 4; }
+  get capacity(): number { return this.mode * 2; }
   get size(): number { return this.players.size; }
 
   // ------------------------------------------------------------ membership
@@ -137,7 +138,7 @@ export class Room {
         break;
       case 'team':
         if (this.state !== 'lobby' || this.mode === 1) break;
-        if ([...this.players.values()].filter((q) => q.team === m.team && q.id !== p.id).length < 2) { p.team = m.team === 1 ? 1 : 0; p.ready = false; this.broadcastLobby(); }
+        if ([...this.players.values()].filter((q) => q.team === m.team && q.id !== p.id).length < this.mode) { p.team = m.team === 1 ? 1 : 0; p.ready = false; this.broadcastLobby(); }
         break;
       case 'ready':
         if (this.state === 'lobby') { p.ready = !!m.ready; this.broadcastLobby(); }
