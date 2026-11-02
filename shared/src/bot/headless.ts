@@ -1,5 +1,5 @@
 import { GameSim, Phase, defaultConfig } from '../sim';
-import { Bot, BotLevel } from './bot';
+import { BotLevel, createBot } from './bot';
 
 export interface MatchResult {
   goals: [number, number];
@@ -15,7 +15,7 @@ export function runBotMatch(levelA: BotLevel, levelB: BotLevel, seconds: number,
     matchLength: seconds,
     skipReplay: true,
   });
-  const bots = [new Bot(levelA, sim, 0, seed), new Bot(levelB, sim, 1, seed + 1)];
+  const bots = [createBot(levelA, sim, 0, seed), createBot(levelB, sim, 1, seed + 1)];
   const touches: [number, number] = [0, 0];
   const last = [-1, -1];
   const maxTicks = Math.ceil(seconds * 120 + 120 * 60);

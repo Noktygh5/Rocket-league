@@ -1,4 +1,4 @@
-import { Bot, BotLevel, CarInput, GameSim, PHYSICS, FixedStepper, SimEvent, defaultConfig } from '@turboball/shared';
+import { BotAgent, BotLevel, CarInput, GameSim, PHYSICS, FixedStepper, SimEvent, createBot, defaultConfig } from '@turboball/shared';
 import { InputSampler } from './input';
 import { RenderSnap, makeSnap, nlerpQuat } from './snap';
 import { Action, settings } from './settings';
@@ -13,7 +13,7 @@ export interface OfflineOptions {
 /** Offline 1v1 against a bot: the sim, bot and renderer all run in the browser. */
 export class OfflineGame {
   readonly sim: GameSim;
-  private bot: Bot;
+  private bot: BotAgent;
   private stepper = new FixedStepper();
   private input = new InputSampler();
   private view: GameView;
@@ -34,12 +34,13 @@ export class OfflineGame {
   readonly names: string[];
 
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement, readonly opts: OfflineOptions) {
+    const botName = opts.difficulty === 'ultrahard' ? 'ULTRAHARD BOSS' : `Bot (${opts.difficulty})`;
     this.sim = new GameSim({
-      ...defaultConfig([{ team: 0, name: opts.name }, { team: 1, name: `Bot (${opts.difficulty})` }], (Date.now() & 0xffff) | 1),
+      ...defaultConfig([{ team: 0, name: opts.name }, { team: 1, name: botName }], (Date.now() & 0xffff) | 1),
       matchLength: opts.matchLength,
     });
-    this.names = [opts.name, `Bot (${opts.difficulty})`];
-    this.bot = new Bot(opts.difficulty, this.sim, 1, 7);
+    this.names = [opts.name, botName];
+    this.bot = createBot(opts.difficulty, this.sim, 1, 7);
     this.view = new GameView(canvas, uiRoot, { names: this.names, teams: [0, 1], localIndex: 0, replay: true });
     this.snap = makeSnap(2);
     this.snap.localIndex = 0;

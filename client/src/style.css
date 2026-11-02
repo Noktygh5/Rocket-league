@@ -86,6 +86,8 @@ button.small, select, input[type=text] { font: inherit; color: var(--ink); backg
 button.small:hover { background: rgba(255,255,255,.18); }
 button.small.on { background: var(--blue); border-color: var(--blue2); }
 button.small.go { background: #19a05a; border-color: #4be08f; font-weight: 700; }
+button.small.boss { border-color: #ff5a3c; color: #ffb09c; font-weight: 800; letter-spacing: 1px; }
+button.small.boss.on { background: #c8321a; border-color: #ff7a5c; color: #fff; }
 input[type=text], textarea { cursor: text; }
 textarea { font: inherit; color: var(--ink); background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.2); padding: 10px 14px; resize: vertical; width: 100%; box-sizing: border-box; }
 .panel.feedback { display: flex; flex-direction: column; gap: 10px; }

@@ -1,8 +1,13 @@
 # TURBOBALL
 
 A browser-based rocket-powered car soccer game. Drive the **Striker**, boost, jump, flip, wall-ride and
-hit a giant ball into the other team's goal. Play offline against a bot (Easy / Medium / Hard) or online
-with friends in private rooms (1v1 or 2v2).
+hit a giant ball into the other team's goal. Play offline against a bot (Easy / Medium / Hard / **Ultrahard
+Boss**) or online with friends in private rooms (1v1, 2v2, or the 3v3 beta on a larger map).
+
+**The Ultrahard Boss** plans by simulation: several times a second it runs copies of the car and ball through
+the real physics, tries different approach angles, aim points (both corners, the middle, bank shots off the
+side walls), flip timings and aerial take-offs, scores what each does to the ball, and plays the best one.
+Details and numbers are in the "Ultrahard Boss" section of `DECISIONS.md`; the code is `shared/src/bot/boss.ts`.
 
 - TypeScript monorepo (npm workspaces): `shared` (deterministic physics + bots + netcode logic),
   `client` (Vite + Three.js), `server` (Node + `ws`, authoritative).

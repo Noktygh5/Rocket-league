@@ -122,8 +122,8 @@ export class App {
     const diffRow = h('div', { class: 'row' });
     const lenRow = h('div', { class: 'row' });
     const render = (): void => {
-      diffRow.replaceChildren(...(['easy', 'medium', 'hard'] as BotLevel[]).map((d) =>
-        h('button', { class: 'small' + (d === difficulty ? ' on' : ''), onClick: () => { difficulty = d; render(); } }, d.toUpperCase())));
+      diffRow.replaceChildren(...(['easy', 'medium', 'hard', 'ultrahard'] as BotLevel[]).map((d) =>
+        h('button', { class: 'small' + (d === difficulty ? ' on' : '') + (d === 'ultrahard' ? ' boss' : ''), onClick: () => { difficulty = d; render(); } }, d === 'ultrahard' ? 'ULTRAHARD BOSS' : d.toUpperCase())));
       lenRow.replaceChildren(...[180, 300, 600].map((l) =>
         h('button', { class: 'small' + (l === length ? ' on' : ''), onClick: () => { length = l; render(); } }, `${l / 60} MIN`)));
     };

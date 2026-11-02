@@ -1,0 +1,687 @@
+import * as arena from '../arena';
+import { BallState, copyBall, stepBall } from '../ball';
+import { CarInput, CarState, copyCar, stepCar } from '../car';
+import { collideCarBall } from '../collide';
+import { ARENA, BALL, PADS, PHYSICS } from '../constants';
+import { clamp } from '../math/scalar';
+import { Vec3 } from '../math/vec3';
+import { GameSim, Phase } from '../sim';
+import { orientCar } from './control';
+import { BallPath, predictBall } from './predict';
+
+/**
+ * The Ultrahard Boss.
+ *
+ * It plays the same physics and the same input struct as a human, but it thinks like a pro: before it
+ * commits to a play it simulates the car and the ball forward with the real physics, tries several
+ * approach angles, aim points and flip timings, scores what each one does to the ball, and executes
+ * the best. The executor that drives the car is the same code used inside those simulations, so what
+ * it predicts is what it does. A decision is spread over a few ticks so the cost stays smooth.
+ */
+
+const DT = PHYSICS.dt;
+const L = ARENA.halfLength;
+const W = ARENA.halfWidth;
+const R = BALL.radius;
+const GOAL_HALF = ARENA.goal.halfWidth;
+const HORIZON = 5;
+const PLAN_PERIOD = 8; // ticks between decisions when the touch is near (15 Hz); half as often otherwise
+const FULL_EVERY = 40; // ticks between full candidate searches; in between the current play is refined
+const BUDGET = 3; // rollouts per tick
+const STRIKE_MIN = -600; // a play scoring below this is not worth leaving position for
+const TIME_COST = 140; // score lost per second until the touch: earlier touches win possession
+const FAKE_TIME = 0.5; // seconds a fake lasts at most
+
+const K = { Drive: 0, Strike: 1, Aerial: 2, Pad: 3, Shadow: 4 } as const;
+type Kind = (typeof K)[keyof typeof K];
+
+/** One decision: where to be, when, and how to hit the ball. */
+class Plan {
+  kind: Kind = K.Drive;
+  /** Drive target (Drive / Pad / Shadow). */
+  tx = 0; ty = 0;
+  speed = 1500;
+  boost = true;
+  /** Strike / Aerial: ball centre at the planned touch, and when (executor clock, seconds). */
+  cx = 0; cy = 0; cz = 0;
+  contactT = 0;
+  /** Direction (horizontal, unit) the ball should be pushed, and the world point it is aimed at. */
+  aimX = 0; aimY = 1;
+  aimPX = 0; aimPY = 0;
+  flip = true;
+  /** Seconds before contact at which the jump for the dodge starts. */
+  flipLead = 0.3;
+  /** Aerial: absolute time of take-off. */
+  jumpAt = 0;
+  score = 0;
+  copy(o: Plan): this {
+    this.kind = o.kind; this.tx = o.tx; this.ty = o.ty; this.speed = o.speed; this.boost = o.boost;
+    this.cx = o.cx; this.cy = o.cy; this.cz = o.cz; this.contactT = o.contactT; this.aimX = o.aimX; this.aimY = o.aimY;
+    this.aimPX = o.aimPX; this.aimPY = o.aimPY;
+    this.flip = o.flip; this.flipLead = o.flipLead; this.jumpAt = o.jumpAt; this.score = o.score;
+    return this;
+  }
+}
+
+/** Low-level state the executor carries between ticks (dodge sequence, aerial commitment). */
+class Exec {
+  now = 0;
+  dodge = 0; // 1 jump held, 2 gap, 3 flip press
+  dodgeT = 0;
+  hold = 0.05;
+  gap = 0.06;
+  dX = 1; dY = 0;
+  jumpHold = 0;
+  inAerial = false;
+  copy(o: Exec): this {
+    this.now = o.now; this.dodge = o.dodge; this.dodgeT = o.dodgeT; this.hold = o.hold; this.gap = o.gap;
+    this.dX = o.dX; this.dY = o.dY; this.jumpHold = o.jumpHold; this.inAerial = o.inAerial;
+    return this;
+  }
+}
+
+const upN = new Vec3();
+
+// ------------------------------------------------------------------------------------------------
+// Executor: turns a Plan into inputs for this tick. Pure function of (car, ball, plan, exec).
+// ------------------------------------------------------------------------------------------------
+
+function driveTo(car: CarState, out: CarInput, tx: number, ty: number, want: number, boostOk: boolean): void {
+  const m = car.basis.m;
+  const dx = tx - car.pos.x, dy = ty - car.pos.y;
+  const dist = Math.hypot(dx, dy);
+  const lx = dx * m[0] + dy * m[3];
+  const ly = dx * m[1] + dy * m[4];
+  const ang = Math.atan2(ly, lx);
+  const abs = Math.abs(ang);
+  const fwd = car.vel.x * m[0] + car.vel.y * m[3] + car.vel.z * m[6];
+  out.steer = clamp(-ang * 3.0, -1, 1);
+  out.yaw = out.steer;
+  if (abs > 2.3 && fwd < 300 && dist < 1800) {
+    out.throttle = -1; out.steer = -out.steer; out.yaw = out.steer;
+    return;
+  }
+  let w = want;
+  if (abs > 0.5 && dist < 1500) w = Math.min(w, 500 + dist * 0.9);
+  out.throttle = fwd < w ? 1 : fwd > w + 250 ? -0.3 : 0;
+  if (abs > 1.15 && fwd > 700 && dist > 500) out.handbrake = true;
+  if (boostOk && abs < 0.22 && car.boost > 0 && fwd < Math.min(2290, w + 100)) out.boost = true;
+}
+
+/** Nose along the direction of travel, wheels toward the nearest surface (or the sky's opposite). */
+function recover(car: CarState, out: CarInput): void {
+  const m = car.basis.m;
+  let fx = car.vel.x, fy = car.vel.y;
+  let l = Math.hypot(fx, fy);
+  if (l < 50) { fx = m[0]; fy = m[3]; l = Math.hypot(fx, fy) || 1; }
+  fx /= l; fy /= l;
+  let ux = 0, uy = 0, uz = 1;
+  const px = car.pos.x + car.vel.x * 0.25, py = car.pos.y + car.vel.y * 0.25, pz = car.pos.z + car.vel.z * 0.25;
+  if (arena.sdf(px, py, pz) < 260) {
+    arena.normal(upN, px, py, pz);
+    ux = upN.x; uy = upN.y; uz = upN.z;
+  }
+  orientCar(car, out, fx, fy, 0, ux, uy, uz, false);
+}
+
+function startDodge(car: CarState, ex: Exec, ax: number, ay: number, stage: 1 | 3): void {
+  const m = car.basis.m;
+  const lx = ax * m[0] + ay * m[3];
+  const ly = ax * m[1] + ay * m[4];
+  const n = Math.hypot(lx, ly) || 1;
+  ex.dX = lx / n; ex.dY = -ly / n;
+  ex.dodge = stage; ex.dodgeT = 0;
+}
+
+function runDodge(car: CarState, plan: Plan, ex: Exec, out: CarInput): void {
+  ex.dodgeT += DT;
+  const burn = plan.boost && car.boost > 0;
+  if (ex.dodge === 1) {
+    out.jump = true; out.throttle = 1; out.boost = burn;
+    if (ex.dodgeT >= ex.hold) { ex.dodge = 2; ex.dodgeT = 0; }
+  } else if (ex.dodge === 2) {
+    out.throttle = 1; out.boost = burn;
+    if (ex.dodgeT >= ex.gap) { ex.dodge = 3; ex.dodgeT = 0; }
+  } else if (ex.dodge === 3) {
+    out.jump = true; out.pitch = ex.dX; out.yaw = ex.dY; out.steer = ex.dY;
+    if (ex.dodgeT >= 0.04) { ex.dodge = 0; ex.dodgeT = 0; }
+  }
+}
+
+function groundStrike(car: CarState, ball: BallState, plan: Plan, ex: Exec, out: CarInput): void {
+  const m = car.basis.m;
+  const dx = plan.cx - car.pos.x, dy = plan.cy - car.pos.y;
+  const dist = Math.hypot(dx, dy);
+  const timeLeft = plan.contactT - ex.now;
+  // line up behind the contact point, closing in as we get near
+  const back = R + 47 + clamp((dist - 350) * 0.45, 0, 650);
+  const tx = plan.cx - plan.aimX * back, ty = plan.cy - plan.aimY * back;
+  const fwd = car.vel.x * m[0] + car.vel.y * m[3] + car.vel.z * m[6];
+  const need = dist / Math.max(0.05, timeLeft);
+  const want = clamp(need, 800, 2300);
+  if (plan.flip && timeLeft <= plan.flipLead && timeLeft > -0.15) {
+    const bdx = ball.pos.x - car.pos.x, bdy = ball.pos.y - car.pos.y;
+    const bd = Math.hypot(bdx, bdy);
+    const ang = Math.atan2(bdx * m[1] + bdy * m[4], bdx * m[0] + bdy * m[3]);
+    if (bd < 620 && Math.abs(ang) < 0.55 && ball.pos.z < 300) {
+      startDodge(car, ex, plan.aimX, plan.aimY, 1);
+      ex.hold = 0.05; ex.gap = 0.06;
+      runDodge(car, plan, ex, out);
+      return;
+    }
+  }
+  driveTo(car, out, tx, ty, want, plan.boost && need > fwd + 120);
+}
+
+function groundAerial(car: CarState, plan: Plan, ex: Exec, out: CarInput): void {
+  const m = car.basis.m;
+  const dx = plan.cx - car.pos.x, dy = plan.cy - car.pos.y;
+  const flat = Math.hypot(dx, dy);
+  const ang = Math.atan2(dx * m[1] + dy * m[4], dx * m[0] + dy * m[3]);
+  if (ex.now >= plan.jumpAt && Math.abs(ang) < 0.6) {
+    ex.inAerial = true; ex.jumpHold = 0.2;
+    out.jump = true; out.throttle = 1;
+    return;
+  }
+  const need = flat / Math.max(0.05, plan.contactT - ex.now);
+  const fwd = car.vel.x * m[0] + car.vel.y * m[3] + car.vel.z * m[6];
+  driveTo(car, out, plan.cx, plan.cy, clamp(need, 700, 2300), plan.boost && need > fwd + 120);
+}
+
+function airControl(car: CarState, ball: BallState, plan: Plan, ex: Exec, out: CarInput): void {
+  const m = car.basis.m;
+  if (plan.kind === K.Aerial && ex.inAerial) {
+    const tau = Math.max(0.12, plan.contactT - ex.now);
+    const g = PHYSICS.gravity;
+    const ax = (plan.cx - car.pos.x) / tau - car.vel.x;
+    const ay = (plan.cy - car.pos.y) / tau - car.vel.y;
+    const az = (plan.cz - car.pos.z) / tau - 0.5 * g * tau - car.vel.z;
+    const al = Math.hypot(ax, ay, az) || 1;
+    const fx = ax / al, fy = ay / al, fz = az / al;
+    orientCar(car, out, fx, fy, fz, 0, 0, 1, true);
+    const facing = fx * m[0] + fy * m[3] + fz * m[6];
+    out.boost = al > 120 && facing > 0.92 && car.boost > 0;
+    if (ex.jumpHold > 0) { out.jump = true; ex.jumpHold -= DT; }
+    const bd = Math.hypot(ball.pos.x - car.pos.x, ball.pos.y - car.pos.y, ball.pos.z - car.pos.z);
+    if (plan.flip && bd < 235 && !car.flipUsed && ex.jumpHold <= 0 && car.airTime > 0.12) {
+      startDodge(car, ex, plan.aimX, plan.aimY, 3);
+      runDodge(car, plan, ex, out);
+    }
+    return;
+  }
+  if (ex.jumpHold > 0) { out.jump = true; ex.jumpHold -= DT; }
+  recover(car, out);
+}
+
+function execute(car: CarState, ball: BallState, plan: Plan, ex: Exec, out: CarInput): void {
+  out.clear();
+  if (ex.dodge > 0) { runDodge(car, plan, ex, out); if (ex.dodge > 0) return; }
+  if (!car.onGround) { airControl(car, ball, plan, ex, out); return; }
+  ex.inAerial = false;
+  if (plan.kind === K.Strike) groundStrike(car, ball, plan, ex, out);
+  else if (plan.kind === K.Aerial) groundAerial(car, plan, ex, out);
+  else driveTo(car, out, plan.tx, plan.ty, plan.speed, plan.boost);
+}
+
+// ------------------------------------------------------------------------------------------------
+// Planner
+// ------------------------------------------------------------------------------------------------
+
+const MAX_OUT = 100; // outcome samples, 1/30 s apart: three seconds of ball flight after the touch
+
+/** A decision in progress: candidates are tried a few per tick against a frozen snapshot of the game. */
+interface Candidate { t: number; px: number; py: number; flip: boolean; lead: number; /** aerial flight time; 0/absent = ground strike */ tau?: number }
+
+export class BossBot {
+  readonly level = 'ultrahard' as const;
+  readonly path = new BallPath();
+  /** Dev-mode debug: latest plan. */
+  debug = { mode: 0, tx: 0, ty: 0, tz: 0 };
+  /** Decision counters for tuning: how each search ended. */
+  readonly stats = { searches: 0, noReach: 0, noTouch: 0, lowScore: 0, strikes: 0, pads: 0, shadows: 0, aerialTried: 0, aerialTouched: 0, aerials: 0 };
+
+  private plan = new Plan();
+  private ex = new Exec();
+  private tickCount = 0;
+  private hasPlan = false;
+  private lastBallVy = 0;
+  private lastFull = -999;
+  private fakeT = 0;
+  private fakeCooldown = 0;
+  private stuckTime = 0;
+  private reverseTime = 0;
+  // snapshot a search works on
+  private snapCar = new CarState();
+  private snapBall = new BallState();
+  private snapEx = new Exec();
+  private snapOpp = new CarState();
+  private hasOpp = false;
+  private snapTick = 0;
+  private att = 1;
+  private threat = false;
+  private kickoff = false;
+  // search progress
+  private searching = false;
+  private stage = 0;
+  private queue: Candidate[] = [];
+  private qi = 0;
+  private bestScore = -1e9;
+  /** Best score per kind in the last search (debug / tuning). */
+  bestAerial = -1e9;
+  bestGround = -1e9;
+  private best = new Plan();
+  private found = false;
+  private fullSearch = true;
+  // rollout scratch
+  private rc = new CarState();
+  private rb = new BallState();
+  private rex = new Exec();
+  private rin = new CarInput();
+  private eb = new BallState();
+  private cand = new Plan();
+  private ox = new Float32Array(MAX_OUT);
+  private oy = new Float32Array(MAX_OUT);
+  private oz = new Float32Array(MAX_OUT);
+  private tmp = new Vec3();
+
+  constructor(private sim: GameSim, readonly index: number) {}
+
+  get predictedPath(): BallPath { return this.path; }
+  get target(): Vec3 { return new Vec3(this.plan.tx, this.plan.ty, this.plan.cz); }
+
+  think(): void {
+    const sim = this.sim;
+    const car = sim.cars[this.index];
+    const out = sim.inputs[this.index];
+    if (sim.phase !== Phase.Playing) {
+      out.clear(); this.hasPlan = false; this.searching = false; this.ex.dodge = 0; this.ex.inAerial = false; this.ex.jumpHold = 0;
+      return;
+    }
+    if (car.demolished) { out.clear(); this.searching = false; return; }
+    this.ex.now = sim.tick * DT;
+    this.tickCount++;
+
+    const busy = this.ex.dodge > 0 || this.ex.jumpHold > 0 || (this.ex.inAerial && !car.onGround);
+    const touched = Math.abs(sim.ball.vel.y - this.lastBallVy) > 400;
+    this.lastBallVy = sim.ball.vel.y;
+
+    if (this.searching) this.stepSearch(car, BUDGET);
+    else {
+      // decide often when the touch is near, rarely while we are just driving there
+      const engaged = (this.plan.kind === K.Strike || this.plan.kind === K.Aerial) && this.plan.contactT - this.ex.now < 1.2;
+      const period = engaged ? PLAN_PERIOD : PLAN_PERIOD * 2;
+      if (!this.hasPlan || (!busy && (this.tickCount % period === 0 || touched))) this.startSearch(car, touched);
+      else if (this.plan.kind === K.Aerial && this.ex.inAerial && this.tickCount % PLAN_PERIOD === 0) this.refreshAerial();
+      if (this.searching) this.stepSearch(car, BUDGET);
+    }
+
+    // fake challenge: rush the ball, then brake and hop as if committing; once the opponent flips, take the ball
+    if (this.runFake(car, out)) return;
+
+    // stuck handling
+    const sp = Math.hypot(car.vel.x, car.vel.y, car.vel.z);
+    if (car.onGround && sp < 60) this.stuckTime += DT; else this.stuckTime = 0;
+    if (this.stuckTime > 1.0 && this.reverseTime <= 0) { this.reverseTime = 0.7; this.stuckTime = 0; }
+    if (this.reverseTime > 0) {
+      this.reverseTime -= DT;
+      out.clear(); out.throttle = -1; out.steer = (this.tickCount >> 4) % 2 ? 1 : -1;
+      return;
+    }
+    execute(car, sim.ball, this.plan, this.ex, out);
+  }
+
+  /** Returns true while a fake is being played (it owns the inputs for those ticks). */
+  private runFake(car: CarState, out: CarInput): boolean {
+    const sim = this.sim;
+    const ball = sim.ball;
+    this.fakeCooldown -= DT;
+    if (this.fakeT > 0) {
+      this.fakeT -= DT;
+      const opp = this.nearestOpponent(car);
+      const oppCommitted = !!opp && (!opp.onGround || opp.flipActive);
+      if (oppCommitted || this.fakeT <= 0 || ball.pos.z > 220) { this.fakeT = 0; this.fakeCooldown = 3; this.hasPlan = false; return false; }
+      out.clear();
+      // brake while hopping, keep the nose on the ball
+      out.throttle = car.onGround ? -1 : 0;
+      if (this.fakeT > FAKE_TIME - 0.1) out.jump = true;
+      return true;
+    }
+    if (this.fakeCooldown > 0 || this.plan.kind !== K.Strike || !car.onGround || this.threat || this.kickoff) return false;
+    if (ball.pos.z > 160 || this.ex.dodge > 0) return false;
+    const opp = this.nearestOpponent(car);
+    if (!opp || !opp.onGround) return false;
+    const dc = Math.hypot(ball.pos.x - car.pos.x, ball.pos.y - car.pos.y);
+    const dopp = Math.hypot(ball.pos.x - opp.pos.x, ball.pos.y - opp.pos.y);
+    const fwd = car.vel.x * car.basis.m[0] + car.vel.y * car.basis.m[3];
+    // only when the opponent is clearly first to the ball, i.e. we would lose this 50/50 anyway
+    if (dc < 420 || dc > 900 || dopp < 260 || dopp > 640 || dopp > dc - 150 || fwd < 900) return false;
+    this.fakeT = FAKE_TIME;
+    return this.runFake(car, out);
+  }
+
+  // ---------------------------------------------------------------- decisions
+  /** Freeze the game state and queue up the candidate plays for this decision. */
+  private startSearch(car: CarState, touched: boolean): void {
+    const sim = this.sim;
+    const ball = sim.ball;
+    this.att = car.team === 0 ? 1 : -1;
+    const att = this.att;
+    const opp = this.nearestOpponent(car);
+    predictBall(this.path, ball, HORIZON, 2);
+    const p = this.path;
+    this.threat = p.goalSide === -att && p.goalTime >= 0 && p.goalTime < 3.2;
+    this.kickoff = Math.abs(ball.pos.x) < 5 && Math.abs(ball.pos.y) < 5 && Math.abs(ball.vel.y) < 5 && ball.pos.z < R + 5;
+    copyCar(this.snapCar, car); copyBall(this.snapBall, ball); this.snapEx.copy(this.ex);
+    this.snapTick = sim.tick;
+    this.hasOpp = !!opp;
+    if (opp) copyCar(this.snapOpp, opp);
+
+    // a full search now and then (and after any touch); in between just refine the play we are already on
+    this.fullSearch = !this.hasPlan || this.plan.kind !== K.Strike || touched || this.tickCount - this.lastFull >= FULL_EVERY;
+    if (this.fullSearch) this.lastFull = this.tickCount;
+    this.queue.length = 0; this.qi = 0;
+    this.buildCandidates(car);
+    this.stage = 1; this.bestScore = -1e9; this.found = false;
+    this.bestAerial = -1e9; this.bestGround = -1e9;
+    this.searching = true;
+  }
+
+  private buildCandidates(car: CarState): void {
+    const p = this.path;
+    const att = this.att;
+    const now = this.ex.now;
+    let i0 = -1;
+    for (let i = 2; i < p.n; i++) {
+      if (p.z[i] > 230) continue;
+      if (this.reachTime(car, p.x[i], p.y[i]) <= p.t[i] + 0.15) { i0 = i; break; }
+    }
+    if (i0 < 0) return;
+    const t0 = p.t[i0];
+
+    // where to send the ball: the two corners and the middle of their goal, plus a clear up the near side
+    const gy = att * (L + 120), gx = GOAL_HALF - 230;
+    const sx = p.x[i0] >= 0 ? 1 : -1;
+    const aims: number[][] = [[-gx, gy], [gx, gy], [0, gy], [sx * W * 0.85, att * L * 0.45]];
+    if (this.threat) aims.push([-sx * W * 0.85, att * L * 0.45]);
+    // bank shot: aim at the mirror image of the goal across the nearer side wall (trick shot off the wall)
+    const bx = p.x[i0];
+    if (!this.threat && Math.abs(bx) > W * 0.4 && p.y[i0] * att > -1500) {
+      const wallX = (W - R) * (bx >= 0 ? 1 : -1);
+      aims.push([2 * wallX - 0, gy]);
+    }
+
+    const cur = this.plan;
+    const tc = cur.contactT - now;
+    const refine = !this.fullSearch && cur.kind === K.Strike && tc >= 0.12 && tc <= HORIZON - 0.3;
+    const times = refine ? [tc] : [t0, t0 + 0.25, t0 + 0.6, t0 + 1.2, t0 + 2.0];
+    for (const t of times) {
+      if (t > HORIZON - 0.3 || t < 0.06) continue;
+      this.pathAt(t);
+      if (this.tmp.z > 230) continue;
+      const cx = this.tmp.x, cy = this.tmp.y;
+      if (Math.abs(cx) > W - 120 || Math.abs(cy) > L + 200) continue;
+      // skip approaches that would need the car to loop round the ball (unless we are defending)
+      const dx = cx - car.pos.x, dy = cy - car.pos.y;
+      const dl = Math.hypot(dx, dy) || 1;
+      let any = false;
+      const start = this.queue.length;
+      for (const a of aims) {
+        const ax = a[0] - cx, ay = a[1] - cy;
+        const al = Math.hypot(ax, ay) || 1;
+        const align = (dx * ax + dy * ay) / (dl * al);
+        if (align < -0.35 && !this.threat && !this.kickoff) continue;
+        this.queue.push({ t, px: a[0], py: a[1], flip: true, lead: 0.3 });
+        any = true;
+      }
+      if (!any) for (const a of aims) this.queue.push({ t, px: a[0], py: a[1], flip: true, lead: 0.3 });
+      void start;
+    }
+    if (refine) {
+      for (const dt of [-0.15, 0.15]) this.queue.push({ t: tc + dt, px: cur.aimPX, py: cur.aimPY, flip: true, lead: 0.3 });
+    }
+
+    // aerials: for a ball that will be up in the air, try a few take-off times against the main aim points
+    if ((this.fullSearch || cur.kind === K.Aerial) && car.boost >= 20) {
+      const taus = [0.9, 1.25, 1.6];
+      let taken = 0;
+      for (let t = 0.9; t <= 3.4 && taken < 2; t += 0.3) {
+        this.pathAt(t);
+        const z = this.tmp.z;
+        if (z < 240 || z > 1500) continue;
+        const cx = this.tmp.x, cy = this.tmp.y;
+        if (Math.abs(cx) > W - 200 || Math.abs(cy) > L - 150) continue;
+        if (Math.hypot(cx - car.pos.x, cy - car.pos.y) / 2000 > t - 0.2) continue;
+        taken++;
+        for (const tau of taus) {
+          if (t - tau < 0.15) continue;
+          for (let ai = 0; ai < 3; ai++) this.queue.push({ t, px: aims[ai][0], py: aims[ai][1], flip: true, lead: 0.3, tau });
+          if (this.threat) this.queue.push({ t, px: aims[3][0], py: aims[3][1], flip: true, lead: 0.3, tau });
+        }
+      }
+    }
+  }
+
+  /** Try up to `n` queued candidates; when the queue empties, move to the next stage or decide. */
+  private stepSearch(car: CarState, n: number): void {
+    const att = this.att;
+    const c = this.cand;
+    const now = this.snapEx.now;
+    for (let k = 0; k < n; k++) {
+      if (this.qi >= this.queue.length) {
+        if (this.stage === 1 && this.found) {
+          // refine the winner: other flip timings, no flip
+          const base = this.best;
+          this.queue.length = 0; this.qi = 0;
+          const bt = base.contactT - now;
+          if (base.kind === K.Aerial) {
+            const tau = base.contactT - base.jumpAt;
+            for (const [dtau, flip] of [[-0.15, true], [0.15, true], [0, false]] as [number, boolean][]) {
+              this.queue.push({ t: bt, px: base.aimPX, py: base.aimPY, flip, lead: 0.3, tau: tau + dtau });
+            }
+          } else {
+            for (const [flip, lead] of [[true, 0.24], [true, 0.36], [false, 0.3]] as [boolean, number][]) {
+              this.queue.push({ t: bt, px: base.aimPX, py: base.aimPY, flip, lead });
+            }
+          }
+          this.stage = 2;
+          continue;
+        }
+        this.finishSearch(car);
+        return;
+      }
+      const cd = this.queue[this.qi++];
+      const tau = cd.tau ?? 0;
+      this.pathAt(cd.t);
+      if (tau === 0 && this.tmp.z > 230) continue;
+      const cx = this.tmp.x, cy = this.tmp.y, cz = this.tmp.z;
+      let ax = cd.px - cx, ay = cd.py - cy;
+      const al = Math.hypot(ax, ay) || 1;
+      ax /= al; ay /= al;
+      c.kind = tau > 0 ? K.Aerial : K.Strike; c.cx = cx; c.cy = cy; c.cz = cz; c.contactT = now + cd.t;
+      c.jumpAt = tau > 0 ? now + cd.t - tau : 0;
+      c.aimX = ax; c.aimY = ay; c.aimPX = cd.px; c.aimPY = cd.py;
+      c.flip = cd.flip; c.flipLead = cd.lead; c.boost = true;
+      let s = this.rollout(c);
+      if (tau > 0) { this.stats.aerialTried++; if (s > -9000) this.stats.aerialTouched++; }
+      if (this.stage === 1 && s > -9000) { if (tau > 0) { if (s > this.bestAerial) this.bestAerial = s; } else if (s > this.bestGround) this.bestGround = s; }
+      const cur = this.plan;
+      // stick with the play we are already on unless something is clearly better
+      if (this.stage === 1 && !this.fullSearch && cur.kind === K.Strike && tau === 0 && Math.abs(cd.t - (cur.contactT - now)) < 0.01 && cd.px === cur.aimPX && cd.py === cur.aimPY) s += 25;
+      if (this.stage === 1 && cur.kind === K.Aerial && tau > 0 && Math.abs(cd.t - (cur.contactT - now)) < 0.3 && cd.px === cur.aimPX && cd.py === cur.aimPY) s += 120;
+      if (s > this.bestScore) { this.bestScore = s; this.best.copy(c); this.best.score = s; this.found = true; }
+    }
+    void att;
+  }
+
+  private finishSearch(car: CarState): void {
+    this.searching = false;
+    const dodging = this.ex.dodge > 0 || this.ex.jumpHold > 0;
+    if (dodging) return; // a dodge started while we were thinking: let it finish
+    const att = this.att;
+    let chosen: Plan | null = null;
+    const st = this.stats;
+    st.searches++;
+    if (this.queue.length === 0 && !this.found) st.noReach++;
+    else if (!this.found) st.noTouch++;
+    else if (!(this.threat || this.kickoff || this.best.score > STRIKE_MIN)) st.lowScore++;
+    if (this.found && (this.threat || this.kickoff || this.best.score > STRIKE_MIN)) { chosen = this.best; st.strikes++; if (chosen.kind === K.Aerial) st.aerials++; }
+    if (!chosen) {
+      const pad = car.boost < 80 ? this.padPlan(car, att) : null;
+      if (pad) { chosen = pad; st.pads++; }
+    }
+    if (!chosen) { chosen = this.shadowPlan(att); st.shadows++; }
+    this.plan.copy(chosen);
+    this.hasPlan = true;
+    this.ex.inAerial = chosen.kind === K.Aerial ? this.ex.inAerial : false;
+    this.debug.mode = chosen.kind; this.debug.tx = chosen.tx || chosen.cx; this.debug.ty = chosen.ty || chosen.cy; this.debug.tz = chosen.cz;
+  }
+
+  private refreshAerial(): void {
+    const sim = this.sim;
+    predictBall(this.path, sim.ball, HORIZON, 2);
+    const pl = this.plan;
+    const t = pl.contactT - this.ex.now;
+    if (t < 0.05 || t > HORIZON - 0.1) return;
+    this.pathAt(t);
+    pl.cx = this.tmp.x; pl.cy = this.tmp.y; pl.cz = this.tmp.z;
+  }
+
+  private nearestOpponent(car: CarState): CarState | null {
+    let best: CarState | null = null, bd = Infinity;
+    for (const c of this.sim.cars) {
+      if (c.team === car.team || c.demolished) continue;
+      const d = Math.hypot(c.pos.x - car.pos.x, c.pos.y - car.pos.y);
+      if (d < bd) { bd = d; best = c; }
+    }
+    return best;
+  }
+
+  /** Ball position at `t` seconds from the snapshot (linear between samples) into this.tmp. */
+  private pathAt(t: number): void {
+    const p = this.path;
+    const f = clamp(t / p.stepDt, 0, p.n - 1.001);
+    const i = Math.floor(f), a = f - i;
+    this.tmp.x = p.x[i] + (p.x[i + 1] - p.x[i]) * a;
+    this.tmp.y = p.y[i] + (p.y[i + 1] - p.y[i]) * a;
+    this.tmp.z = p.z[i] + (p.z[i + 1] - p.z[i]) * a;
+  }
+
+  /** Optimistic time for `car` to reach a ground point. */
+  private reachTime(car: CarState, px: number, py: number): number {
+    const m = car.basis.m;
+    const dx = px - car.pos.x, dy = py - car.pos.y;
+    const flat = Math.hypot(dx, dy);
+    const ang = Math.abs(Math.atan2(dx * m[1] + dy * m[4], dx * m[0] + dy * m[3]));
+    return flat / (car.boost > 25 ? 1950 : 1550) + ang / 3.4;
+  }
+
+  /**
+   * Simulate `plan` with the executor on copies of the snapshot car and ball until the touch, then roll
+   * the ball on and score the result. Returns a very low score when the plan never touches the ball.
+   */
+  private rollout(plan: Plan): number {
+    const c = this.rc, b = this.rb, ex = this.rex, inp = this.rin;
+    copyCar(c, this.snapCar); copyBall(b, this.snapBall); ex.copy(this.snapEx);
+    const t0 = ex.now;
+    const tEnd = plan.contactT + 0.6;
+    let tick = this.snapTick;
+    let touched = false, tTouch = 0, post = 0;
+    while (ex.now < tEnd) {
+      execute(c, b, plan, ex, inp);
+      stepCar(c, inp, DT);
+      stepBall(b, DT);
+      if (collideCarBall(c, b, ++tick)) { if (!touched) { touched = true; tTouch = ex.now - t0; } }
+      if (touched && ++post > 5) break;
+      ex.now += DT;
+    }
+    if (!touched) return -9999;
+    return this.evaluate(b, tTouch, plan);
+  }
+
+  private evaluate(b: BallState, tTouch: number, plan: Plan): number {
+    const att = this.att;
+    const opp = this.hasOpp ? this.snapOpp : null;
+    const eb = this.eb;
+    copyBall(eb, b);
+    let goalFor = false, goalAgainst = false, tGoal = 0, n = 0;
+    for (let i = 0; i < MAX_OUT; i++) {
+      stepBall(eb, DT); stepBall(eb, DT); stepBall(eb, DT); stepBall(eb, DT); // 1/30 s per sample
+      this.ox[i] = eb.pos.x; this.oy[i] = eb.pos.y; this.oz[i] = eb.pos.z; n = i + 1;
+      const y = eb.pos.y * att;
+      if (y > L + R) { goalFor = true; tGoal = (i + 1) / 30; break; }
+      if (y < -(L + R)) { goalAgainst = true; tGoal = (i + 1) / 30; break; }
+    }
+    const tt = tTouch;
+    // can the opponent get to the ball before it crosses the line?
+    let saveable = false;
+    if (opp && goalFor) {
+      const spd = Math.max(1500, Math.hypot(opp.vel.x, opp.vel.y));
+      for (let i = 0; i < n; i++) {
+        const z = this.oz[i];
+        if (z > 520) continue;
+        const d = Math.hypot(this.ox[i] - opp.pos.x, this.oy[i] - opp.pos.y);
+        const need = d / spd + (z > 230 ? 0.6 : 0);
+        if (need < tt + (i + 1) / 30 - 0.05) { saveable = true; break; }
+      }
+    }
+    let v: number;
+    if (goalFor) v = 1000 - (saveable ? 650 : 0) - 40 * (tt + tGoal);
+    else if (goalAgainst) v = -1500;
+    else {
+      const fy = eb.pos.y * att;
+      v = 0.1 * fy + 0.04 * eb.vel.y * att;
+      if (fy < -2500) v -= (-2500 - fy) * 0.2;
+      // do not leave the ball where the opponent is about to get it
+      if (opp) {
+        const d = Math.hypot(eb.pos.x - opp.pos.x, eb.pos.y - opp.pos.y);
+        v += Math.min(d, 3000) * 0.03;
+      }
+    }
+    v -= TIME_COST * tt;
+    // the opponent would get there first
+    if (opp && !this.kickoff && !this.threat) {
+      const od = Math.hypot(plan.cx - opp.pos.x, plan.cy - opp.pos.y);
+      const oReach = od / Math.max(1500, Math.hypot(opp.vel.x, opp.vel.y)) + (plan.cz > 230 ? 0.6 : 0);
+      if (oReach < tt - 0.15) v -= 250;
+    }
+    return v;
+  }
+
+  private padPlan(car: CarState, att: number): Plan | null {
+    const pads = this.sim.pads;
+    let best = -1, bv = 4;
+    for (let i = 0; i < pads.length; i++) {
+      const pd = pads[i];
+      const spec = pd.large ? PADS.large : PADS.small;
+      const t = this.reachTime(car, pd.x, pd.y);
+      if (!pd.active && pd.timer > t) continue;
+      if (t > 3.2) continue;
+      let v = Math.min(spec.amount, 100 - car.boost) / (1 + 0.9 * t);
+      if (pd.y * att > 3000) v *= 0.6; // deep in their half: leave it
+      if (v > bv) { bv = v; best = i; }
+    }
+    if (best < 0) return null;
+    const pl = new Plan();
+    pl.kind = K.Pad; pl.tx = pads[best].x; pl.ty = pads[best].y; pl.speed = 2100; pl.boost = car.boost > 25;
+    return pl;
+  }
+
+  /** Hold a position between the ball and our goal. */
+  private shadowPlan(att: number): Plan {
+    const p = this.path;
+    const i = Math.min(p.n - 1, Math.round(0.6 / p.stepDt));
+    const bx = p.x[i], by = p.y[i];
+    const gy = -att * (L - 300);
+    const ballOurSide = by * att < 0;
+    const f = ballOurSide ? 0.5 : 0.35;
+    let ty = gy + (by - gy) * f;
+    const lim = L - 400;
+    ty = clamp(ty, -lim, lim);
+    const pl = new Plan();
+    pl.kind = K.Shadow; pl.tx = clamp(bx * f, -1800, 1800); pl.ty = ty; pl.speed = 1700; pl.boost = false;
+    return pl;
+  }
+}
+
+/** Matches the pieces of `Bot` that the game uses. */
+export type BotAgent = Pick<BossBot, 'think' | 'predictedPath' | 'target' | 'debug'>;

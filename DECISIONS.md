@@ -152,3 +152,25 @@ Ball tweak: base is now near-black; hexagons are ~2.7x larger (about 10 panels a
 - Round 12: landing "planting" — while on a surface the car's up axis is pulled onto the surface normal (`CAR.drive.plantLevel` 150) and tilt spin is damped (`plantDamping` 18); mean settle time after a steered jump with air-roll/pitch input fell ~0.21 s → ~0.04 s. Big chevron panels removed from the goals (the video's goals are plain dark openings); the LED sign is smaller.
 - Round 13: free-camera ball pointer — while ball cam is off and the ball is off-screen (or behind), a ball icon with an arrow sits on the screen edge pointing at it (`ballarrow` in view.ts). Ball cam toggles with F (rebindable).
 - Round 14: goal explosion (all cars thrown away from the scored-in goal and tumbling, deterministic in the sim; offline slow-motion 0.25x for 1.6 s then eases back); goal-mouth floor ramp removed from the mesh so the floor runs flat into the goal; the goal phase now ends exactly when the replay does (no replay-then-old-positions tail), and skipping goes straight to kickoff.
+
+## Ultrahard Boss (beta branch)
+A fifth bot, `createBot('ultrahard', ...)` in `shared/src/bot/boss.ts`. It uses the same physics and the same input struct as a human; it is not given any speed or reaction advantage.
+
+**How it works.** Every few ticks it freezes the game, then tries candidate plays against copies of the car and ball: five contact times x four to five aim points (both goal corners, the middle, a clear up the near side, a bank shot off the side wall when the ball is near one) x flip timings, plus aerial take-offs at three flight times. A play is simulated with the same executor that drives the real car, up to the first touch; then the ball is rolled on for three seconds and scored (goal for/against, whether the opponent could save it, field position, time to the touch, whether the opponent would get there first). The best play is executed. A full search runs about three times a second and after every touch; in between it only refines the current play. The work is spread over ticks (three simulations per tick) so there is no frame hitch: about 2.5 percent of one core, worst tick about 7 ms on an M-series Mac.
+
+**Measured (headless, `scripts/lab_stats.ts`, boss vs Hard, sides swapped):**
+- 5-minute matches, 20 games: 20 wins, 0 draws, 0 losses, goals 83-16.
+- 2-minute matches on the 1.5x beta map, 40 games: 32-34 wins, 5-7 draws, 1 loss.
+- 2-minute matches on the standard map (MAP_SCALE 1), 20 games: 16 wins, 4 draws, 0 losses, goals 49-2.
+- In 16 two-minute games it made 224 touches, 19 of them in the air (5 above 500 uu), 129 of them as a flip into the ball.
+
+**Things the data said, and what was done about them**
+- *Speed flips at kickoff do not help in this physics.* A flip costs ground acceleration and steering; plain boost reaches the ball in 2.97 s, every flip variant tried took 3.1 s or more (`scripts/lab_kickoff.ts`). The boss kicks off with boost and flips into the ball at the touch.
+- *Wall pinches give no free power.* A flip hit on a ball resting at the side wall leaves 5-8 percent slower than the same hit in open field, at every angle (`scripts/lab_pinch.ts`). So there is no pinch trick to exploit. Wall play is covered by bank shots, which use the bounce for the angle and were worth about +6 goals over 30 games.
+- *Fakes are neutral against the Hard bot.* A fake (brake, hop, then take the ball once the opponent commits to a flip) fired whenever the opponent was near cost wins: 30-8-2 with it against 34-5-1 without it over the same 40 games. Limited to the case where the opponent is clearly first to the ball (a 50/50 it would lose anyway) it is neutral: 32-7-1, goals 64-10 against 65-8. It is kept for the look; the Hard bot does not read feints the way a human does.
+- *Thinking less often costs wins; thinking cheaper does not.* Halving the decision rate dropped it to 13-5-2; spreading the same search over ticks and refining the current play between full searches kept the strength and cut the cost about 40 percent.
+- *Aerials are boost-hungry.* The first take-offs ran out of boost before the touch (33 boost to 0 in under two seconds). Rollouts account for it, so the boss only commits when the simulated aerial reaches the ball. Aerials are about 8 percent of its touches; most of the rest is ground play plus flips.
+
+**Not done:** flip resets, air dribbles, flicks, wall driving, half-flips (the flip locks out roll for 0.65 s in this sim), demolitions, and any model of the opponent's reaction inside the simulation.
+
+Lab scripts in `shared/scripts/`: `lab_stats.ts` (bot vs bot), `lab_profile.ts` (CPU per decision), `lab_aerial.ts`, `lab_moves.ts` (touch types), `lab_kickoff.ts`, `lab_pinch.ts`, `lab_rollout.ts` (cost of one simulated second).
