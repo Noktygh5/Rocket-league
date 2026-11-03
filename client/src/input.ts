@@ -1,6 +1,9 @@
 import { CarInput } from '@turboball/shared';
 import { Action, ACTIONS, settings } from './settings';
 
+/** Fixed secondary keys that always work alongside the rebindable ones. */
+const ALT_KEYS: Partial<Record<Action, string>> = { boost: 'KeyN', powerslide: 'KeyJ' };
+
 /**
  * Keyboard sampler. Called once per physics tick; digital keys are smoothed here (never in the
  * sim) so the server sees exactly the inputs the client simulated.
@@ -66,7 +69,7 @@ export class InputSampler {
     return null;
   }
   private held(a: Action): boolean {
-    return this.down.has(settings.keys[a]);
+    return this.down.has(settings.keys[a]) || (ALT_KEYS[a] !== undefined && this.down.has(ALT_KEYS[a]!));
   }
 
   private approach(v: number, target: number, dt: number): number {

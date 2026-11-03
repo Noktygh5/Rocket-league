@@ -6,6 +6,7 @@ import { ARENA, BALL, PADS, PHYSICS } from '../constants';
 import { clamp } from '../math/scalar';
 import { Vec3 } from '../math/vec3';
 import { GameSim, Phase } from '../sim';
+import { Prng } from '../prng';
 import { orientCar } from './control';
 import { BallPath, predictBall } from './predict';
 
@@ -30,8 +31,13 @@ const FULL_EVERY = 40; // ticks between full candidate searches; in between the 
 const BUDGET = 3; // rollouts per tick
 const STRIKE_MIN = -600; // a play scoring below this is not worth leaving position for
 const TIME_COST = 140; // score lost per second until the touch: earlier touches win possession
-const AERIAL_BONUS = 150; // a viable aerial is preferred to waiting for the ball to drop (earlier, harder to defend)
+const AERIAL_BONUS = 260; // a viable aerial is preferred to waiting for the ball to drop (earlier, harder to defend)
+const PAD_BOOST = 70; // detour for a pad on the way to a play below this boost
+const PAD_SLACK = 2.0; // ... when there are at least this many seconds before the touch
 const FAKE_TIME = 0.5; // seconds a fake lasts at most
+const NOISE = 22; // bias per aim point, redrawn each full search: near-equal shot corners are picked at random so the boss is not readable
+const DEMO_MAX = 1.6; // seconds a demolition run lasts at most
+const DEMO_COOLDOWN = 3.5; // seconds between demolition runs
 
 const K = { Drive: 0, Strike: 1, Aerial: 2, Pad: 3, Shadow: 4 } as const;
 type Kind = (typeof K)[keyof typeof K];
@@ -256,7 +262,7 @@ export class BossBot {
   /** Dev-mode debug: latest plan. */
   debug = { mode: 0, tx: 0, ty: 0, tz: 0 };
   /** Decision counters for tuning: how each search ended. */
-  readonly stats = { searches: 0, noReach: 0, noTouch: 0, lowScore: 0, strikes: 0, pads: 0, shadows: 0, aerialTried: 0, aerialTouched: 0, aerials: 0 };
+  readonly stats = { searches: 0, noReach: 0, noTouch: 0, lowScore: 0, strikes: 0, pads: 0, shadows: 0, aerialTried: 0, aerialTouched: 0, aerials: 0, demoRuns: 0, demos: 0 };
 
   private plan = new Plan();
   private ex = new Exec();
@@ -266,6 +272,10 @@ export class BossBot {
   private lastFull = -999;
   private fakeT = 0;
   private fakeCooldown = 0;
+  private demoT = 0;
+  private rng: Prng;
+  private aimBias = new Map<number, number>();
+  private demoCooldown = 0;
   private stuckTime = 0;
   private reverseTime = 0;
   // snapshot a search works on
@@ -308,7 +318,7 @@ export class BossBot {
   private oz = new Float32Array(MAX_OUT);
   private tmp = new Vec3();
 
-  constructor(private sim: GameSim, readonly index: number) {}
+  constructor(private sim: GameSim, readonly index: number) { this.rng = new Prng(index * 7919 + 13); }
 
   get predictedPath(): BallPath { return this.path; }
   get target(): Vec3 { return new Vec3(this.plan.tx, this.plan.ty, this.plan.cz); }
@@ -340,6 +350,7 @@ export class BossBot {
     }
 
     // fake challenge: rush the ball, then brake and hop as if committing; once the opponent flips, take the ball
+    if (this.runDemo(car, out)) return;
     if (this.runFake(car, out)) return;
 
     // stuck handling
@@ -354,6 +365,61 @@ export class BossBot {
     execute(car, sim.ball, this.plan, this.ex, out);
   }
 
+  /**
+   * Demolition run (a staple of the pro we model it on): with boost and a clear line, drive at the
+   * opponent's predicted position at supersonic speed. A demolished opponent is out for three seconds,
+   * which is a free ball. Only when the ball play does not need us in the next moment.
+   */
+  private runDemo(car: CarState, out: CarInput): boolean {
+    const sim = this.sim;
+    const att = this.att;
+    this.demoCooldown -= DT;
+    const opp = this.nearestOpponent(car);
+    if (this.demoT > 0) {
+      this.demoT -= DT;
+      if (!opp || opp.demolished) {
+        if (opp && opp.demolished) this.stats.demos++;
+        this.demoT = 0; this.demoCooldown = 1; this.hasPlan = false; return false;
+      }
+      const dx = opp.pos.x - car.pos.x, dy = opp.pos.y - car.pos.y;
+      const dist = Math.hypot(dx, dy);
+      const m = car.basis.m;
+      const lead = clamp(dist / 2300, 0, 0.9);
+      const tx = clamp(opp.pos.x + opp.vel.x * lead, -(W - 150), W - 150), ty = clamp(opp.pos.y + opp.vel.y * lead, -(L - 150), L - 150);
+      const ang = Math.atan2((tx - car.pos.x) * m[1] + (ty - car.pos.y) * m[4], (tx - car.pos.x) * m[0] + (ty - car.pos.y) * m[3]);
+      const ballT = Math.hypot(sim.ball.pos.x - car.pos.x, sim.ball.pos.y - car.pos.y);
+      if (this.demoT <= 0 || !car.onGround || opp.pos.z > 260 || Math.abs(ang) > 1.1 || car.boost <= 0 && Math.hypot(car.vel.x, car.vel.y) < 2200 || (this.threat && ballT < 2500)) {
+        this.demoT = 0; this.demoCooldown = DEMO_COOLDOWN; this.hasPlan = false; return false;
+      }
+      out.clear();
+      driveTo(car, out, tx, ty, 2300, true);
+      return true;
+    }
+    if (this.demoCooldown > 0 || !opp || opp.demolished || !car.onGround || this.threat || this.kickoff || this.ex.dodge > 0) return false;
+    if (car.boost < 45 || opp.pos.z > 150 || sim.ball.pos.z > 400) return false;
+    // a ball play that is about to happen comes first
+    if ((this.plan.kind === K.Strike || this.plan.kind === K.Aerial) && this.plan.contactT - this.ex.now < 1.4) return false;
+    const dx = opp.pos.x - car.pos.x, dy = opp.pos.y - car.pos.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 900 || dist > 3300) return false;
+    const m = car.basis.m;
+    const fwd = car.vel.x * m[0] + car.vel.y * m[3];
+    const tx = opp.pos.x + opp.vel.x * (dist / 2300), ty = opp.pos.y + opp.vel.y * (dist / 2300);
+    const ang = Math.atan2((tx - car.pos.x) * m[1] + (ty - car.pos.y) * m[4], (tx - car.pos.x) * m[0] + (ty - car.pos.y) * m[3]);
+    if (Math.abs(ang) > 0.45 || fwd < 1300) return false;
+    // not when the opponent is coming straight at us just as fast (the faster car wins the clash; do not gamble)
+    const oppFwd = (opp.vel.x * -dx + opp.vel.y * -dy) / dist;
+    if (oppFwd > 1500) return false;
+    // worth it when the opponent is the one nearer the ball, or when the ball is in their half and we have a lane
+    const bo = Math.hypot(sim.ball.pos.x - opp.pos.x, sim.ball.pos.y - opp.pos.y);
+    const bc = Math.hypot(sim.ball.pos.x - car.pos.x, sim.ball.pos.y - car.pos.y);
+    if (!(bo < bc - 300 || sim.ball.pos.y * att > 1500)) return false;
+    // never leave the goal open while the ball is on our side and heading our way
+    if (sim.ball.pos.y * att < -1500 && sim.ball.vel.y * att < 0) return false;
+    this.demoT = DEMO_MAX; this.stats.demoRuns++;
+    return this.runDemo(car, out);
+  }
+
   /** Returns true while a fake is being played (it owns the inputs for those ticks). */
   private runFake(car: CarState, out: CarInput): boolean {
     const sim = this.sim;
@@ -363,7 +429,7 @@ export class BossBot {
       this.fakeT -= DT;
       const opp = this.nearestOpponent(car);
       const oppCommitted = !!opp && (!opp.onGround || opp.flipActive);
-      if (oppCommitted || this.fakeT <= 0 || ball.pos.z > 220) { this.fakeT = 0; this.fakeCooldown = 3; this.hasPlan = false; return false; }
+      if (oppCommitted || this.fakeT <= 0 || ball.pos.z > 220) { this.fakeT = 0; this.fakeCooldown = 2 + this.rng.next() * 4; this.hasPlan = false; return false; }
       out.clear();
       // brake while hopping, keep the nose on the ball
       out.throttle = car.onGround ? -1 : 0;
@@ -409,7 +475,7 @@ export class BossBot {
 
     // a full search now and then (and after any touch); in between just refine the play we are already on
     this.fullSearch = !this.hasPlan || this.plan.kind !== K.Strike || touched || this.tickCount - this.lastFull >= FULL_EVERY;
-    if (this.fullSearch) this.lastFull = this.tickCount;
+    if (this.fullSearch) { this.lastFull = this.tickCount; this.aimBias.clear(); }
     this.queue.length = 0; this.qi = 0;
     this.buildCandidates(car);
     this.stage = 1; this.bestScore = -1e9; this.found = false;
@@ -424,7 +490,7 @@ export class BossBot {
   private buildOppPlan(opp: CarState): boolean {
     const p = this.path;
     const ballOpp = Math.hypot(this.snapBall.pos.x - opp.pos.x, this.snapBall.pos.y - opp.pos.y);
-    if (!this.kickoff && ballOpp > 3200) return false;
+    if (!this.kickoff && (ballOpp > 3200 || !this.contesting(opp, this.snapBall.pos.x, this.snapBall.pos.y))) return false;
     if (this.kickoff) {
       // the opponent drives flat out at the ball and flips into it
       const o = this.oppPlan;
@@ -453,6 +519,45 @@ export class BossBot {
       return true;
     }
     return false;
+  }
+
+  /**
+   * The ball path with the opponent's hit in it. Near our goal the plain path (no cars) is wrong as soon as
+   * the opponent touches the ball, and every save or tackle is aimed at a point on that path. So the modelled
+   * opponent strike is simulated and the path is replaced by what the ball then does. Without a touch within
+   * the horizon the path is the plain one again.
+   */
+  private predictOppHit(opp: CarState): void {
+    const c = this.oc, b = this.rb, ex = this.oex, inp = this.oin;
+    const path = this.path;
+    const n = path.n, dt = path.stepDt;
+    copyCar(c, opp); copyBall(b, this.snapBall);
+    ex.copy(this.snapEx); ex.dodge = 0; ex.dodgeT = 0; ex.jumpHold = 0; ex.inAerial = false; ex.fastStage = 0;
+    const att = this.att;
+    let tick = this.snapTick;
+    let touched = false;
+    // sample i of the path is the state after 2 * i ticks; before the touch it is already the plain path
+    for (let k = 0; k <= 2 * (n - 1); k++) {
+      if (touched && k % 2 === 0) {
+        const i = k / 2;
+        path.x[i] = b.pos.x; path.y[i] = b.pos.y; path.z[i] = b.pos.z;
+        path.vx[i] = b.vel.x; path.vy[i] = b.vel.y; path.vz[i] = b.vel.z;
+      }
+      if (!touched) {
+        execute(c, b, this.oppPlan, ex, inp);
+        stepCar(c, inp, DT);
+      }
+      stepBall(b, DT);
+      if (!touched && collideCarBall(c, b, ++tick)) touched = true;
+      ex.now += DT;
+    }
+    if (!touched) return;
+    path.goalSide = 0; path.goalTime = -1;
+    for (let i = 0; i < n; i++) {
+      if (path.y[i] > L + R) { path.goalSide = 1; path.goalTime = i * dt; break; }
+      if (path.y[i] < -L - R) { path.goalSide = -1; path.goalTime = i * dt; break; }
+    }
+    void att;
   }
 
   /** How long `src` takes to touch the ball (rest of the world frozen) while executing `plan`; -1 if it does not. */
@@ -546,13 +651,26 @@ export class BossBot {
     }
 
     // aerials: for a ball that will be up in the air, try a few take-off times against the main aim points
-    if ((this.fullSearch || cur.kind === K.Aerial) && car.boost >= 20) {
+    if ((this.fullSearch || cur.kind === K.Aerial) && car.boost >= 12) {
+      // keep the take-off we are already committed to (otherwise a rolling horizon pushes the jump back forever)
+      if (cur.kind === K.Aerial) {
+        const tc2 = cur.contactT - now;
+        const jt = cur.jumpAt - now;
+        if (tc2 > 0.25 && tc2 < HORIZON - 0.3) {
+          for (const dt of [0, -0.1, 0.1]) {
+            const t2 = tc2 + dt;
+            this.pathAt(t2);
+            if (this.tmp.z < 240 || this.tmp.z > 1700) continue;
+            this.queue.push({ t: t2, px: cur.aimPX, py: cur.aimPY, flip: cur.flip, lead: 0.3, tau: Math.max(0.25, t2 - Math.max(0, jt)), fast: cur.fast });
+          }
+        }
+      }
       const taus = [0.9, 1.25, 1.6];
       let taken = 0;
-      for (let t = 0.9; t <= 3.4 && taken < 2; t += 0.3) {
+      for (let t = 0.9; t <= 3.4 && taken < 3; t += 0.3) {
         this.pathAt(t);
         const z = this.tmp.z;
-        if (z < 240 || z > 1500) continue;
+        if (z < 240 || z > 1700) continue;
         const cx = this.tmp.x, cy = this.tmp.y;
         // near our own goal (a backboard save) the ball may be right up against the wall
         if (Math.abs(cx) > W - 200 || Math.abs(cy) > (this.threat ? L - 20 : L - 150)) continue;
@@ -611,12 +729,13 @@ export class BossBot {
       c.aimX = ax; c.aimY = ay; c.aimPX = cd.px; c.aimPY = cd.py;
       c.flip = cd.flip; c.flipLead = cd.lead; c.boost = true; c.fast = !!cd.fast; c.rush = !!cd.rush;
       let s = this.rollout(c);
+      if (this.stage === 1 && s > -9000 && !this.threat && !this.kickoff) s += this.biasFor(cd.px, cd.py);
       if (tau > 0) { this.stats.aerialTried++; if (s > -9000) { this.stats.aerialTouched++; s += AERIAL_BONUS; } }
       if (this.stage === 1 && s > -9000) { if (tau > 0) { if (s > this.bestAerial) this.bestAerial = s; } else if (s > this.bestGround) this.bestGround = s; }
       const cur = this.plan;
       // stick with the play we are already on unless something is clearly better
       if (this.stage === 1 && !this.fullSearch && cur.kind === K.Strike && tau === 0 && Math.abs(cd.t - (cur.contactT - now)) < 0.01 && cd.px === cur.aimPX && cd.py === cur.aimPY) s += 25;
-      if (this.stage === 1 && cur.kind === K.Aerial && tau > 0 && Math.abs(cd.t - (cur.contactT - now)) < 0.3 && cd.px === cur.aimPX && cd.py === cur.aimPY) s += 120;
+      if (this.stage === 1 && cur.kind === K.Aerial && tau > 0 && Math.abs(cd.t - (cur.contactT - now)) < 0.12 && cd.px === cur.aimPX && cd.py === cur.aimPY) s += 120;
       if (s > this.bestScore) { this.bestScore = s; this.best.copy(c); this.best.score = s; this.found = true; }
     }
     void att;
@@ -634,15 +753,38 @@ export class BossBot {
     else if (!this.found) st.noTouch++;
     else if (!(this.threat || this.kickoff || this.best.score > STRIKE_MIN)) st.lowScore++;
     if (this.found && (this.threat || this.kickoff || this.best.score > STRIKE_MIN)) { chosen = this.best; st.strikes++; if (chosen.kind === K.Aerial) st.aerials++; }
+    const ownEndEarly = this.holdGoal(car);
     // a long run-up to the ball with low boost: take a pad on the way if it costs almost nothing
-    if (chosen && car.boost < 50 && !this.threat && chosen.contactT - this.ex.now > 2.0) {
+    if (chosen && car.boost < PAD_BOOST && !this.threat && !ownEndEarly && chosen.contactT - this.ex.now > PAD_SLACK) {
       const detour = this.detourPad(car, chosen);
       if (detour) { chosen = detour; st.pads++; }
     }
+    // out of position: we are past the ball (toward their goal) and they are nearer to it, so rotate back instead of chasing
+    if (chosen && !this.threat && !this.kickoff) {
+      const opp = this.nearestOpponent(car);
+      const ball = this.sim.ball;
+      if (opp && this.contesting(opp, ball.pos.x, ball.pos.y)) {
+        const dc = Math.hypot(ball.pos.x - car.pos.x, ball.pos.y - car.pos.y);
+        const dopp = Math.hypot(ball.pos.x - opp.pos.x, ball.pos.y - opp.pos.y);
+        const ahead = car.pos.y * att - ball.pos.y * att;
+        const oppToward = (opp.vel.x * (ball.pos.x - opp.pos.x) + opp.vel.y * (ball.pos.y - opp.pos.y)) / (dopp || 1);
+        // only when they are really coming at it fast and close, and we are well past the ball (a looser rule made the boss retreat from open balls)
+        if (ahead > 1200 && dopp < 1500 && dopp < dc - 600 && oppToward > 700 && ball.pos.y * att < 1500 && chosen.contactT - this.ex.now > 0.5) chosen = null;
+        // the ball is in our half and we are past it while they are about as near as we are: get goal-side before they shoot, do not chase
+        if (chosen && ball.pos.y * att < -300 && ahead > 800 && dopp < dc + 300 && chosen.contactT - this.ex.now > 0.4) chosen = null;
+      }
+    }
     // a dangerous ball we cannot reach: still get to where it will cross the line
     if (!chosen && this.threat) chosen = this.guardPlan(att);
+    // nothing to strike: do not wait or go shopping while the ball is on our side, close in on where it is going to be
+    if (!chosen && !this.threat && !this.kickoff && (car.boost >= 15 || Math.hypot(this.sim.ball.pos.x - car.pos.x, this.sim.ball.pos.y - car.pos.y) < 2500)) {
+      const press = this.pressPlan(car, att);
+      if (press) { chosen = press; st.shadows++; }
+    }
+    // no shopping while the ball is in our end: be a goalkeeper instead
+    const ownEnd = this.holdGoal(car);
     if (!chosen) {
-      const pad = car.boost < 80 ? this.padPlan(car, att) : null;
+      const pad = car.boost < 80 && !ownEnd ? this.padPlan(car, att) : null;
       if (pad) { chosen = pad; st.pads++; }
     }
     if (!chosen) { chosen = this.shadowPlan(att, car); st.shadows++; }
@@ -660,6 +802,35 @@ export class BossBot {
     if (t < 0.05 || t > HORIZON - 0.1) return;
     this.pathAt(t);
     pl.cx = this.tmp.x; pl.cy = this.tmp.y; pl.cz = this.tmp.z;
+  }
+
+  /** The same random bias for every candidate that aims at the same point, so only the choice of aim is shuffled, never the timing. */
+  private biasFor(px: number, py: number): number {
+    const key = Math.round(px / 50) * 10007 + Math.round(py / 50);
+    let v = this.aimBias.get(key);
+    if (v === undefined) { v = (this.rng.next() - 0.5) * 2 * NOISE; this.aimBias.set(key, v); }
+    return v;
+  }
+
+  /**
+   * Is the opponent really going for the ball? Only if it is on it, or moving toward it at some speed. A car that is
+   * idle, drifting or heading elsewhere is not a threat to the ball, and defending against it makes the boss passive.
+   */
+  private contesting(opp: CarState, bx: number, by: number): boolean {
+    const dx = bx - opp.pos.x, dy = by - opp.pos.y;
+    const d = Math.hypot(dx, dy);
+    return d < 1200 || (opp.vel.x * dx + opp.vel.y * dy) / d > 150;
+  }
+
+  /** Ball close to our goal and the opponent at least as near to it as we are: stay and defend, do not shop for boost. */
+  private holdGoal(car: CarState): boolean {
+    const ball = this.sim.ball;
+    if (ball.pos.y * this.att > -L + 3000) return false;
+    const opp = this.nearestOpponent(car);
+    if (!opp || !this.contesting(opp, ball.pos.x, ball.pos.y)) return false;
+    const dc = Math.hypot(ball.pos.x - car.pos.x, ball.pos.y - car.pos.y);
+    const dopp = Math.hypot(ball.pos.x - opp.pos.x, ball.pos.y - opp.pos.y);
+    return dopp < dc + 400;
   }
 
   private nearestOpponent(car: CarState): CarState | null {
@@ -835,6 +1006,33 @@ export class BossBot {
     pl.tx = clamp(p.x[ti], -(GOAL_HALF + 150), GOAL_HALF + 150);
     pl.ty = -att * (L - 450);
     pl.speed = 2300; pl.boost = true;
+    return pl;
+  }
+
+  /**
+   * Close in on the ball while it is on our side of the pitch: aim for where it will be in about 0.7 s, a little goal-side of it,
+   * so that we are on it the moment it is lost, popped up or passed. Null when the ball is up the field (then the usual shadow/pad play).
+   */
+  private pressPlan(car: CarState, att: number): Plan | null {
+    const p = this.path;
+    const i = Math.min(p.n - 1, Math.round(0.7 / p.stepDt));
+    const bx = p.x[i], by = p.y[i];
+    if (by * att > 800 || p.z[i] > 1500) return null;
+    // only against a ball being carried or held: the opponent is on it and it is not flying (a fast rally is for the strike logic)
+    const opp = this.nearestOpponent(car);
+    const ball = this.sim.ball;
+    if (!opp || Math.hypot(ball.pos.x - opp.pos.x, ball.pos.y - opp.pos.y) > 700 || Math.hypot(ball.vel.x, ball.vel.y) > 1300) return null;
+    const gx = 0, gy = -att * (L - 300);
+    const dgx = gx - bx, dgy = gy - by;
+    const dg = Math.hypot(dgx, dgy) || 1;
+    const dist = Math.hypot(bx - car.pos.x, by - car.pos.y);
+    const gap = clamp(0.3 * dist, 650, 1200);
+    const pl = new Plan();
+    pl.kind = K.Shadow;
+    pl.tx = clamp(bx + (dgx / dg) * gap, -(W - 300), W - 300);
+    pl.ty = clamp(by + (dgy / dg) * gap, -(L - 400), L - 400);
+    pl.speed = dist > 1800 ? 2200 : 1500;
+    pl.boost = dist > 2600 && car.boost > 25;
     return pl;
   }
 
