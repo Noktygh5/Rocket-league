@@ -33,6 +33,7 @@ const STRIKE_MIN = -600; // a play scoring below this is not worth leaving posit
 const TIME_COST = 140; // score lost per second until the touch: earlier touches win possession
 const AERIAL_BONUS = 260; // a viable aerial is preferred to waiting for the ball to drop (earlier, harder to defend)
 const PAD_BOOST = 70; // detour for a pad on the way to a play below this boost
+const PAD_PLAN = 80; // with nothing to strike, go for a pad below this boost
 const PAD_SLACK = 2.0; // ... when there are at least this many seconds before the touch
 const FAKE_TIME = 0.5; // seconds a fake lasts at most
 const NOISE = 22; // bias per aim point, redrawn each full search: near-equal shot corners are picked at random so the boss is not readable
@@ -616,7 +617,10 @@ export class BossBot {
     // where to send the ball: the two corners and the middle of their goal, plus a clear up the near side
     const gy = att * (L + 120), gx = GOAL_HALF - 230;
     const sx = p.x[i0] >= 0 ? 1 : -1;
-    const aims: number[][] = [[-gx, gy], [gx, gy], [0, gy], [sx * W * 0.85, att * L * 0.45]];
+    const aims: number[][] = [[-gx, gy], [gx, gy], [0, gy]];
+
+    // a clear up the near side: for defence and for balls on our half; in their half it only pushes the ball into a corner
+    aims.push([sx * W * 0.85, att * L * 0.45]);
     if (this.threat) aims.push([-sx * W * 0.85, att * L * 0.45]);
     // bank shot: aim at the mirror image of the goal across the nearer side wall (trick shot off the wall)
     const bx = p.x[i0];
@@ -624,7 +628,6 @@ export class BossBot {
       const wallX = (W - R) * (bx >= 0 ? 1 : -1);
       aims.push([2 * wallX - 0, gy]);
     }
-
     const cur = this.plan;
     const tc = cur.contactT - now;
     const refine = !this.fullSearch && cur.kind === K.Strike && tc >= 0.12 && tc <= HORIZON - 0.3;
@@ -759,8 +762,9 @@ export class BossBot {
     else if (!(this.threat || this.kickoff || this.best.score > STRIKE_MIN)) st.lowScore++;
     if (this.found && (this.threat || this.kickoff || this.best.score > STRIKE_MIN)) { chosen = this.best; st.strikes++; if (chosen.kind === K.Aerial) st.aerials++; }
     const ownEndEarly = this.holdGoal(car);
-    // a long run-up to the ball with low boost: take a pad on the way if it costs almost nothing
-    if (chosen && car.boost < PAD_BOOST && !this.threat && !ownEndEarly && chosen.contactT - this.ex.now > PAD_SLACK) {
+    const carrying = this.isCarry(car);
+    // a long run-up to the ball with low boost: take a pad on the way if it costs almost nothing (not while they carry the ball)
+    if (chosen && !carrying && car.boost < PAD_BOOST && !this.threat && !ownEndEarly && chosen.contactT - this.ex.now > PAD_SLACK) {
       const detour = this.detourPad(car, chosen);
       if (detour) { chosen = detour; st.pads++; }
     }
@@ -781,6 +785,11 @@ export class BossBot {
     }
     // a dangerous ball we cannot reach: still get to where it will cross the line
     if (!chosen && this.threat) chosen = this.guardPlan(att);
+    // they are carrying the ball: go and meet it, wherever it is (a long carry used to walk past us while we shadowed or shopped for boost)
+    if (!chosen && !this.threat && !this.kickoff) {
+      const cp = this.carryPlan(car, att);
+      if (cp) { chosen = cp; st.shadows++; }
+    }
     // nothing to strike: do not wait or go shopping while the ball is on our side, close in on where it is going to be
     if (!chosen && !this.threat && !this.kickoff && (car.boost >= 15 || Math.hypot(this.sim.ball.pos.x - car.pos.x, this.sim.ball.pos.y - car.pos.y) < 2500)) {
       const press = this.pressPlan(car, att);
@@ -789,7 +798,7 @@ export class BossBot {
     // no shopping while the ball is in our end: be a goalkeeper instead
     const ownEnd = this.holdGoal(car);
     if (!chosen) {
-      const pad = car.boost < 80 && !ownEnd ? this.padPlan(car, att) : null;
+      const pad = car.boost < PAD_PLAN && !ownEnd && !(this.finishing() && car.boost >= 20) ? this.padPlan(car, att) : null;
       if (pad) { chosen = pad; st.pads++; }
     }
     if (!chosen) { chosen = this.shadowPlan(att, car); st.shadows++; }
@@ -947,6 +956,11 @@ export class BossBot {
       }
     }
     v -= TIME_COST * tt;
+    // a play that leaves the ball out wide in their end (corner, back wall) is not a chance: it sits there and gets cleared
+    if (!goalFor && !this.threat && !this.kickoff) {
+      const fy2 = eb.pos.y * att, ax = Math.abs(eb.pos.x);
+      if (fy2 > 2500 && ax > 2200) v -= 0.12 * (ax - 2200) * Math.min(1, (fy2 - 2500) / 2000);
+    }
     // the opponent would get there first
     if (opp && !this.useOpp && !this.kickoff && !this.threat) {
       const od = Math.hypot(plan.cx - opp.pos.x, plan.cy - opp.pos.y);
@@ -1039,6 +1053,48 @@ export class BossBot {
     pl.speed = dist > 1800 ? 2200 : 1500;
     pl.boost = dist > 2600 && car.boost > 25;
     return pl;
+  }
+
+  /** The opponent is on the ball and moving with it: a carry or dribble, not a loose ball. */
+  private isCarry(car: CarState): boolean {
+    const opp = this.nearestOpponent(car);
+    const ball = this.sim.ball;
+    if (!opp || opp.demolished || ball.pos.z > 350) return false;
+    if (Math.hypot(ball.pos.x - opp.pos.x, ball.pos.y - opp.pos.y) > 750) return false;
+    return Math.hypot(ball.vel.x - opp.vel.x, ball.vel.y - opp.vel.y) < 900;
+  }
+
+  /**
+   * Meet a carried ball: drive flat out to the earliest point of the ball's path that we can reach (its path is the carrier's, the ball moves with it).
+   * If the carrier is simply faster, cut it off ahead of it on our goal's side. Contact with the ball or the carrier is the challenge.
+   */
+  private carryPlan(car: CarState, att: number): Plan | null {
+    if (!this.isCarry(car)) return null;
+    const p = this.path;
+    let ti = -1;
+    for (let i = 2; i < p.n; i++) {
+      if (p.z[i] > 250) continue;
+      if (this.reachTime(car, p.x[i], p.y[i]) <= p.t[i] + 0.1) { ti = i; break; }
+    }
+    const pl = new Plan();
+    pl.kind = K.Shadow;
+    if (ti >= 0) { pl.tx = p.x[ti]; pl.ty = p.y[ti]; }
+    else {
+      // cannot get there in time: head for a point ahead of the carrier, between it and our goal
+      const i = Math.min(p.n - 1, Math.round(1.6 / p.stepDt));
+      const gy = -att * (L - 300);
+      const dx = -p.x[i], dy = gy - p.y[i], dl = Math.hypot(dx, dy) || 1;
+      pl.tx = clamp(p.x[i] + (dx / dl) * 500, -(W - 300), W - 300); pl.ty = clamp(p.y[i] + (dy / dl) * 500, -(L - 400), L - 400);
+    }
+    const dist = Math.hypot(pl.tx - car.pos.x, pl.ty - car.pos.y);
+    pl.speed = 2300; pl.boost = dist > 1200 && car.boost > 3;
+    return pl;
+  }
+
+  /** The ball is in their end, near their goal: finish it; a pad is only worth leaving for when boost is nearly gone. */
+  private finishing(): boolean {
+    const b = this.sim.ball;
+    return b.pos.y * this.att > L - 4800;
   }
 
   /** Hold a position between the ball and our goal, getting there fast when we are out of place. */

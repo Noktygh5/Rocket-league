@@ -99,23 +99,22 @@ describe('ultrahard boss', () => {
     expect(saved).toBeGreaterThanOrEqual(14); // 70 percent; it stops about 87 percent in the lab
   }, 120_000);
 
-  it('does not hop around without a plan: nearly every jump is followed by a touch', () => {
-    // regression: an aerial plan whose contact time had passed sent the car up again every time it landed
-    const sim = new GameSim({ ...defaultConfig([{ team: 0, name: 'boss' }, { team: 1, name: 'idle' }], 601), matchLength: 90, skipReplay: true });
-    const boss = createBot('ultrahard', sim, 0, 601);
-    let ticks = 0, prev = false, presses = 0, aimless = 0, lastTouch = -1;
-    const pending: number[] = [];
-    while (sim.phase !== Phase.Ended && ticks < 90 * 120 + 3000) {
-      boss.think(); sim.step(); ticks++;
-      if (sim.phase !== Phase.Playing) { pending.length = 0; prev = false; continue; }
-      const j = sim.inputs[0].jump;
-      if (j && !prev) { presses++; pending.push(ticks); }
-      prev = j;
-      const c = sim.cars[0];
-      if (c.lastTouchTick !== lastTouch && c.lastTouchTick >= 0) { lastTouch = c.lastTouchTick; pending.length = 0; }
-      while (pending.length && ticks - pending[0] > 264) { aimless++; pending.shift(); }
-    }
-    expect(presses).toBeGreaterThan(5);
-    expect(aimless / presses).toBeLessThan(0.12); // before the fix: about a third
-  }, 90_000);
+  it('never takes off on a stale aerial plan (the boss used to hop in place every time it landed)', () => {
+    const sim = new GameSim({ ...defaultConfig([{ team: 0, name: 'boss' }, { team: 1, name: 'idle' }], 601), matchLength: 60, skipReplay: true });
+    const boss: any = createBot('ultrahard', sim, 0, 601);
+    while (sim.phase !== Phase.Playing) sim.step();
+    const car = sim.cars[0];
+    // a quiet ball far away, the car on the ground facing it, and an Aerial plan whose take-off and contact times are long past
+    placeCar(car, -3000, -3000, Math.atan2(3000, 3000));
+    sim.ball.pos.x = 0; sim.ball.pos.y = 0; sim.ball.pos.z = 92; sim.ball.vel.x = 0; sim.ball.vel.y = 0; sim.ball.vel.z = 0;
+    sim.cars[1].pos.x = 3500; sim.cars[1].pos.y = 6500;
+    boss.think(); // let it build its first plan
+    const now = sim.tick / 120;
+    const pl = boss.plan;
+    pl.kind = 2; pl.jumpAt = now - 3; pl.contactT = now - 2; pl.cx = 0; pl.cy = 0; pl.cz = 700; pl.flip = true;
+    boss.hasPlan = true; boss.searching = false;
+    let presses = 0, prev = false;
+    for (let i = 0; i < 90; i++) { boss.think(); sim.step(); const j = sim.inputs[0].jump; if (j && !prev && car.pos.z < 60) presses++; prev = j; }
+    expect(presses).toBe(0);
+  }, 30_000);
 });
