@@ -37,3 +37,6 @@ feedback*.jsonl
 *.mp4
 *.mkv
 *.webm
+
+# vs-Bot match recordings (local-only video + bot telemetry, see recordings/)
+recordings/

@@ -6,6 +6,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { ClientMsg, PROTOCOL_VERSION } from '@turboball/shared';
 import { Player, Room, cleanName } from './room';
 import { feedbackInboxPath, handleFeedback } from './feedback';
+import { handleRecording } from './recordings';
 
 const port = Number(process.env.PORT ?? 8080);
 const allowed = (process.env.ALLOWED_ORIGINS ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -20,14 +21,16 @@ const MIME: Record<string, string> = {
 
 const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.map']);
 // The built client never changes while the server runs, so each file is read and compressed once.
-const fileCache = new Map<string, { body: Buffer; gz: Buffer | null; type: string }>();
+// An entry is reloaded if the file changes on disk (e.g. the client is rebuilt while the server is running).
+const fileCache = new Map<string, { body: Buffer; gz: Buffer | null; type: string; mtime: number }>();
 
 function loadFile(file: string): { body: Buffer; gz: Buffer | null; type: string } {
+  const mtime = statSync(file).mtimeMs;
   let f = fileCache.get(file);
-  if (!f) {
+  if (!f || f.mtime !== mtime) {
     const ext = extname(file);
     const body = readFileSync(file);
-    f = { body, gz: COMPRESSIBLE.has(ext) ? gzipSync(body, { level: 9 }) : null, type: MIME[ext] ?? 'application/octet-stream' };
+    f = { body, gz: COMPRESSIBLE.has(ext) ? gzipSync(body, { level: 9 }) : null, type: MIME[ext] ?? 'application/octet-stream', mtime };
     fileCache.set(file, f);
   }
   return f;
@@ -59,6 +62,7 @@ const http = createServer((req, res) => {
     res.end(JSON.stringify({ ok: true, rooms: rooms.size, protocol: PROTOCOL_VERSION }));
     return;
   }
+  if (handleRecording(req, res, url)) return;
   if (handleFeedback(req, res, url)) return;
   if (staticDir) {
     let file = normalize(join(staticDir, url === '/' ? 'index.html' : url));

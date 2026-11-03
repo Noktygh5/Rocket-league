@@ -2,6 +2,7 @@ import { BotLevel, CAMERA_DEFAULTS } from '@turboball/shared';
 import { escapeHtml } from './hud';
 import { serverUrl } from './net/transport';
 import { OfflineGame } from './offline';
+import { canRecordHere } from './recorder';
 import { ACTIONS, ACTION_LABELS, Action, Quality, keyLabel, resetCamera, saveSettings, settings } from './settings';
 import type { RenderSnap } from './snap';
 
@@ -36,7 +37,7 @@ export class App {
   onlineMenu: (() => void) | null = null;
   /** Whatever is currently running a match (offline or online) so Esc and quit can stop it. */
   stopActive: (() => void) | null = null;
-  private lastBot: { difficulty: BotLevel; length: number } = { difficulty: 'medium', length: 300 };
+  private lastBot: { difficulty: BotLevel; length: number; record: boolean } = { difficulty: 'medium', length: 300, record: false };
   private toastEl: HTMLElement | null = null;
 
   screen(el: HTMLElement | null): void {
@@ -119,9 +120,14 @@ export class App {
   botSetup(): void {
     let difficulty: BotLevel = this.lastBot.difficulty;
     let length = this.lastBot.length;
+    let record = this.lastBot.record && canRecordHere();
     const diffRow = h('div', { class: 'row' });
     const lenRow = h('div', { class: 'row' });
+    const recRow = h('div', { class: 'row' });
     const render = (): void => {
+      recRow.replaceChildren(
+        h('button', { class: 'small' + (record ? ' on' : ''), onClick: () => { record = !record; render(); } }, record ? '● RECORDING ON' : 'RECORD MATCH'),
+        h('span', { class: 'hint', style: 'margin:0' }, record ? 'Fixed overhead camera + bot telemetry, saved to the recordings folder.' : 'Off'));
       diffRow.replaceChildren(...(['easy', 'medium', 'hard', 'ultrahard'] as BotLevel[]).map((d) =>
         h('button', { class: 'small' + (d === difficulty ? ' on' : '') + (d === 'ultrahard' ? ' boss' : ''), onClick: () => { difficulty = d; render(); } }, d === 'ultrahard' ? 'ULTRAHARD BOSS' : d.toUpperCase())));
       lenRow.replaceChildren(...[180, 300, 600].map((l) =>
@@ -133,9 +139,10 @@ export class App {
       h('div', { class: 'panel' },
         h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Difficulty'), diffRow),
         h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Match length'), lenRow),
+        canRecordHere() ? h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Record (local only)'), recRow) : null,
         h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Your name'),
           h('input', { type: 'text', maxlength: 14, value: settings.name, onInput: (e: Event) => { settings.name = (e.target as HTMLInputElement).value.trim() || 'Player'; saveSettings(); } }))),
-      bigBtn('START MATCH', () => this.startOffline(difficulty, length)),
+      bigBtn('START MATCH', () => this.startOffline(difficulty, length, record)),
       bigBtn('BACK', () => this.mainMenu(), true),
     ));
   }
@@ -212,13 +219,15 @@ export class App {
   }
 
   // ------------------------------------------------------------ matches
-  startOffline(difficulty: BotLevel, length: number): void {
-    this.lastBot = { difficulty, length };
+  startOffline(difficulty: BotLevel, length: number, record = this.lastBot.record): void {
+    this.lastBot = { difficulty, length, record };
     this.screen(h('div', { class: 'loading' }, 'LOADING…'));
     requestAnimationFrame(() => setTimeout(() => {
       this.stopGame();
-      const game = new OfflineGame(this.canvas, this.ui, { difficulty, matchLength: length, name: settings.name });
+      const game = new OfflineGame(this.canvas, this.ui, { difficulty, matchLength: length, name: settings.name, record: record && canRecordHere() });
       this.game = game;
+      game.onRecordingSaved = (id) => this.toast(`Recording saved: recordings/${id}`, 8000);
+      game.onRecordingError = (msg) => this.toast(`Not recording: ${msg}`, 6000);
       this.stopActive = () => game.stop();
       game.onPauseRequest = () => this.pause();
       game.onEnd = (snap, names) => this.matchResult(snap, names, true);

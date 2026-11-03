@@ -3,6 +3,7 @@ import { MATCH, PAD_COUNT, Vec3, arena } from '@turboball/shared';
 import { AudioEngine } from './audio';
 import { CamPose, CamTarget, ChaseCamera } from './camera';
 import { Hud } from './hud';
+import type { SpectatorRecorder } from './recorder';
 import { Frame, World } from './render/world';
 import { Quality, settings } from './settings';
 import { BallSnap, CarSnap, RenderSnap, makeSnap, nlerpQuat } from './snap';
@@ -69,6 +70,8 @@ export class GameView {
   /** Offline sim speed multiplier (goal slow motion). */
   timeScale = 1;
   scoreboard = false;
+  /** Set for recorded vs-Bot matches (localhost only). */
+  recorder: SpectatorRecorder | null = null;
   private replay: ReplayBuffer;
   private frame: Frame;
   private pose: CamPose = { pos: new Vec3(), target: new Vec3(), up: new Vec3(0, 0, 1), fov: 100 };
@@ -251,6 +254,7 @@ export class GameView {
     this.fillFrame(view);
     this.setCam(this.pose);
     this.world.render(this.frame, dt);
+    if (this.recorder && !playing) this.recorder.frame(s, dt); // live state only: replays are not part of the recording
     const camW = this.world.camera, W = window.innerWidth, Hh = window.innerHeight;
     for (let i = 0; i < this.tags.length; i++) {
       const c = view.cars[i], el = this.tags[i];

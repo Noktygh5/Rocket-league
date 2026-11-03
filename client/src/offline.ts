@@ -1,5 +1,6 @@
 import { BotAgent, BotLevel, CarInput, GameSim, PHYSICS, FixedStepper, SimEvent, createBot, defaultConfig } from '@turboball/shared';
 import { InputSampler } from './input';
+import { SpectatorRecorder } from './recorder';
 import { RenderSnap, makeSnap, nlerpQuat } from './snap';
 import { Action, settings } from './settings';
 import { GameView } from './view';
@@ -8,6 +9,8 @@ export interface OfflineOptions {
   difficulty: BotLevel;
   matchLength: number;
   name: string;
+  /** Record a fixed-camera video and bot telemetry to recordings/ (localhost only). */
+  record?: boolean;
 }
 
 /** Offline 1v1 against a bot: the sim, bot and renderer all run in the browser. */
@@ -30,6 +33,10 @@ export class OfflineGame {
   private goalClock = 0;
   onPauseRequest: (() => void) | null = null;
   onEnd: ((s: RenderSnap, names: string[]) => void) | null = null;
+  /** Called with the recording id once a recorded match is fully on disk. */
+  onRecordingSaved: ((id: string) => void) | null = null;
+  onRecordingError: ((msg: string) => void) | null = null;
+  private rec: SpectatorRecorder | null = null;
   private endedFired = false;
   readonly names: string[];
 
@@ -42,6 +49,11 @@ export class OfflineGame {
     this.names = [opts.name, botName];
     this.bot = createBot(opts.difficulty, this.sim, 1, 7);
     this.view = new GameView(canvas, uiRoot, { names: this.names, teams: [0, 1], localIndex: 0, replay: true });
+    if (opts.record) {
+      this.rec = new SpectatorRecorder(this.view.world, { difficulty: opts.difficulty, matchLength: opts.matchLength, names: this.names, teams: [0, 1], botIndex: 1 });
+      this.rec.setBot(this.bot.debug);
+      this.view.recorder = this.rec;
+    }
     this.snap = makeSnap(2);
     this.snap.localIndex = 0;
     this.prevCars = new Float64Array(2 * 7);
@@ -65,11 +77,17 @@ export class OfflineGame {
     this.input.enabled = !p;
     this.input.releaseAll();
     this.last = performance.now();
+    if (this.rec) this.rec.paused = p;
     if (p) this.view.audio.silenceLoops();
   }
 
   start(): void {
     this.last = performance.now();
+    if (this.rec) {
+      const rec = this.rec;
+      rec.onError = (msg) => this.recordingFailed(rec, msg);
+      rec.start().catch((e: Error) => this.recordingFailed(rec, e.message));
+    }
     const loop = (now: number): void => {
       if (this.stopped) return;
       this.raf = requestAnimationFrame(loop);
@@ -81,8 +99,26 @@ export class OfflineGame {
   stop(): void {
     this.stopped = true;
     cancelAnimationFrame(this.raf);
+    this.finishRecording();
     this.input.detach();
     this.view.destroy();
+  }
+
+  private recordingFailed(rec: SpectatorRecorder, msg: string): void {
+    if (this.rec !== rec) return;
+    this.rec = null;
+    this.view.recorder = null;
+    void rec.stop(null);
+    this.onRecordingError?.(msg);
+  }
+
+  /** Stops recording (match over or left early) and reports the id once the files are complete. */
+  private finishRecording(): void {
+    const rec = this.rec;
+    if (!rec) return;
+    this.rec = null;
+    this.view.recorder = null;
+    void rec.stop(this.snap).then((id) => { if (!rec.hasFailed) this.onRecordingSaved?.(id); });
   }
 
   private savePrev(): void {
@@ -109,8 +145,10 @@ export class OfflineGame {
         this.input.sample(sim.inputs[0], PHYSICS.dt);
         this.bot.think();
         this.savePrev();
+        const firstNew = this.events.length;
         sim.step();
         sim.drainEvents(this.events);
+        this.rec?.onTick(sim, this.events, firstNew);
       });
       if (sim.phase === 2) this.goalClock += dt; else this.goalClock = 0;
       if (sim.phase === 2 && this.view.replayEnded) sim.phaseTimer = Math.min(sim.phaseTimer, 0.05);
@@ -122,6 +160,7 @@ export class OfflineGame {
     this.events.length = 0;
     if (sim.phase === 3 && !this.endedFired) {
       this.endedFired = true;
+      this.finishRecording();
       this.onEnd?.(this.snap, this.names);
     }
   }
