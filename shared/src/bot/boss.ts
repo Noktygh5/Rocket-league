@@ -20,6 +20,9 @@ import { BallPath, predictBall } from './predict';
  * it predicts is what it does. A decision is spread over a few ticks so the cost stays smooth.
  */
 
+/** Bumped with every behaviour change; the match recorder writes it into meta.json so a recording says which boss played it. */
+export const BOSS_VERSION = 'r13 carry contest, goal-zone pads, boost reserve below 25';
+
 const DT = PHYSICS.dt;
 const L = ARENA.halfLength;
 const W = ARENA.halfWidth;
@@ -761,6 +764,9 @@ export class BossBot {
     else if (!this.found) st.noTouch++;
     else if (!(this.threat || this.kickoff || this.best.score > STRIKE_MIN)) st.lowScore++;
     if (this.found && (this.threat || this.kickoff || this.best.score > STRIKE_MIN)) { chosen = this.best; st.strikes++; if (chosen.kind === K.Aerial) st.aerials++; }
+    // keep a reserve: below 25 boost an ordinary play runs on what the car has, so there is boost left for the run back when the ball is lost
+    // (recorded games: the boss burned its last boost in a deep attack, lost the ball and could not catch the carrier at 1,400 uu/s)
+    if (chosen && chosen.kind === K.Strike && !chosen.rush && !this.threat && !this.kickoff && car.boost < 25) chosen.boost = false;
     const ownEndEarly = this.holdGoal(car);
     const carrying = this.isCarry(car);
     // a long run-up to the ball with low boost: take a pad on the way if it costs almost nothing (not while they carry the ball)

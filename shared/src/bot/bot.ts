@@ -6,6 +6,7 @@ import { Vec3 } from '../math/vec3';
 import { Prng } from '../prng';
 import { GameSim, Phase } from '../sim';
 import { BossBot } from './boss';
+export { BOSS_VERSION } from './boss';
 import { orientCar } from './control';
 import { BallPath, predictBall } from './predict';
 

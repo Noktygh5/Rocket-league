@@ -13,6 +13,7 @@ const att = bot === 0 ? 1 : -1;                       // blue (index 0) attacks 
 const L = meta.arena.halfLengthY, dt = 4 / 120;
 const secs = play.length * dt;
 const f1 = (x: number) => x.toFixed(1);
+console.log(`boss version: ${meta.botVersion ?? 'not recorded (a game from before version stamps: probably an older boss, reload the page after code changes)'}`);
 console.log(`${meta.id}: ${meta.players.map((p: any) => p.name).join(' vs ')}, ${f1(secs)} s of live play, final score ${JSON.stringify(ticks[ticks.length - 1]?.sc)} (blue-orange)`);
 const goals = events.filter((e) => e.type === 'goal');
 console.log(`goals: ${goals.map((g) => `${f1(g.tick / 120)}s ${g.a === bot ? 'BOT' : 'HUMAN'}`).join(', ') || 'none'}`);
