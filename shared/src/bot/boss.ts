@@ -21,7 +21,7 @@ import { BallPath, predictBall } from './predict';
  */
 
 /** Bumped with every behaviour change; the match recorder writes it into meta.json so a recording says which boss played it. */
-export const BOSS_VERSION = 'r13 carry contest, goal-zone pads, boost reserve below 25';
+export const BOSS_VERSION = 'r14 carry contest, goal-zone pads, boost reserve below 25, shot-contact times';
 
 const DT = PHYSICS.dt;
 const L = ARENA.halfLength;
@@ -634,7 +634,8 @@ export class BossBot {
     const cur = this.plan;
     const tc = cur.contactT - now;
     const refine = !this.fullSearch && cur.kind === K.Strike && tc >= 0.12 && tc <= HORIZON - 0.3;
-    const times = refine ? [tc] : [t0, t0 + 0.25, t0 + 0.6, t0 + 1.2, t0 + 2.0];
+    const times = refine ? [tc] : this.threat ? [t0, t0 + 0.1, t0 + 0.2, t0 + 0.35, t0 + 0.5, t0 + 0.7, t0 + 1.0] : // a shot: many contact times near the line, so there is a way to meet it head-on
+       [t0, t0 + 0.25, t0 + 0.6, t0 + 1.2, t0 + 2.0];
     for (const t of times) {
       if (t > HORIZON - 0.3 || t < 0.06) continue;
       this.pathAt(t);
