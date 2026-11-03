@@ -98,4 +98,24 @@ describe('ultrahard boss', () => {
     }
     expect(saved).toBeGreaterThanOrEqual(14); // 70 percent; it stops about 87 percent in the lab
   }, 120_000);
+
+  it('does not hop around without a plan: nearly every jump is followed by a touch', () => {
+    // regression: an aerial plan whose contact time had passed sent the car up again every time it landed
+    const sim = new GameSim({ ...defaultConfig([{ team: 0, name: 'boss' }, { team: 1, name: 'idle' }], 601), matchLength: 90, skipReplay: true });
+    const boss = createBot('ultrahard', sim, 0, 601);
+    let ticks = 0, prev = false, presses = 0, aimless = 0, lastTouch = -1;
+    const pending: number[] = [];
+    while (sim.phase !== Phase.Ended && ticks < 90 * 120 + 3000) {
+      boss.think(); sim.step(); ticks++;
+      if (sim.phase !== Phase.Playing) { pending.length = 0; prev = false; continue; }
+      const j = sim.inputs[0].jump;
+      if (j && !prev) { presses++; pending.push(ticks); }
+      prev = j;
+      const c = sim.cars[0];
+      if (c.lastTouchTick !== lastTouch && c.lastTouchTick >= 0) { lastTouch = c.lastTouchTick; pending.length = 0; }
+      while (pending.length && ticks - pending[0] > 264) { aimless++; pending.shift(); }
+    }
+    expect(presses).toBeGreaterThan(5);
+    expect(aimless / presses).toBeLessThan(0.12); // before the fix: about a third
+  }, 90_000);
 });

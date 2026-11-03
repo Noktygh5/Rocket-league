@@ -195,7 +195,8 @@ function groundAerial(car: CarState, plan: Plan, ex: Exec, out: CarInput): void 
   const dx = plan.cx - car.pos.x, dy = plan.cy - car.pos.y;
   const flat = Math.hypot(dx, dy);
   const ang = Math.atan2(dx * m[1] + dy * m[4], dx * m[0] + dy * m[3]);
-  if (ex.now >= plan.jumpAt && Math.abs(ang) < 0.6) {
+  // take off only inside the planned window: a plan whose contact time has gone must never send the car up again
+  if (ex.now >= plan.jumpAt && ex.now < plan.contactT - 0.15 && Math.abs(ang) < 0.6) {
     ex.inAerial = true; ex.jumpHold = 0.2; ex.fastStage = 0; ex.fastT = 0;
     out.jump = true; out.throttle = 1;
     return;
@@ -334,6 +335,10 @@ export class BossBot {
     if (car.demolished) { out.clear(); this.searching = false; return; }
     this.ex.now = sim.tick * DT;
     this.tickCount++;
+    // an aerial whose touch time is long past is dead: decide again now (while a stale one is kept the planner is not asked)
+    if (this.hasPlan && this.plan.kind === K.Aerial && this.ex.now > this.plan.contactT + 0.4 && !this.searching) {
+      this.hasPlan = false; this.ex.jumpHold = 0; this.ex.inAerial = false;
+    }
 
     const busy = this.ex.dodge > 0 || this.ex.jumpHold > 0 || (this.ex.inAerial && !car.onGround);
     const touched = Math.abs(sim.ball.vel.y - this.lastBallVy) > 400;
