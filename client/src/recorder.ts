@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { ARENA, BotAgent, GameSim, PHYSICS, SimEvent } from '@turboball/shared';
+import { ARENA, BOSS_VERSION, BotAgent, GameSim, PHYSICS, SimEvent } from '@turboball/shared';
 import type { World } from './render/world';
 import type { RenderSnap } from './snap';
 
@@ -46,8 +46,16 @@ export interface RecorderInfo {
 
 export class SpectatorRecorder {
   readonly id: string;
-  /** Set while the match is paused so no duplicate frames are recorded. */
-  paused = false;
+  private _paused = false;
+  private _replaying = false;
+  private held = false;
+  private holdWhy = 'pause';
+  /** True while the match is paused (Esc menu): the video is paused too, so that time is not in it. */
+  get paused(): boolean { return this._paused; }
+  set paused(v: boolean) { this._paused = v; this.syncHold(); }
+  /** True while a goal replay plays: replays are cut from the video (the live match is what gets analysed). */
+  get replaying(): boolean { return this._replaying; }
+  set replaying(v: boolean) { if (v !== this._replaying) { this._replaying = v; this.syncHold(); } }
   onError: ((msg: string) => void) | null = null;
   private renderer: THREE.WebGLRenderer;
   private cam: THREE.PerspectiveCamera;
@@ -100,7 +108,24 @@ export class SpectatorRecorder {
     this.mr = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: BITRATE });
     this.mr.ondataavailable = (e) => { if (e.data.size > 0) this.enqueue(`video.${this.ext}`, 'POST', e.data); };
     this.mr.start(1000);
+    if (this.held) this.mr.pause(); // paused or in a replay before the recorder was ready
     this.startedAt = Date.now();
+  }
+
+  /** Pauses the video while the match is paused or a replay plays; telemetry marks where, to line it up with the video. */
+  private syncHold(): void {
+    const hold = this._paused || this._replaying;
+    if (hold === this.held) return;
+    this.held = hold;
+    const mr = this.mr;
+    if (mr) {
+      try {
+        if (hold && mr.state === 'recording') mr.pause();
+        else if (!hold && mr.state === 'paused') mr.resume();
+      } catch { /* recorder already stopped */ }
+    }
+    if (hold) this.holdWhy = this._paused ? 'pause' : 'replay';
+    if (!this.failed) this.lines.push(JSON.stringify({ k: 'v', tick: this.tickN, video: hold ? 'hold' : 'resume', why: this.holdWhy }));
   }
 
   private meta(end: { score: [number, number]; stats: unknown } | null): object {
@@ -109,10 +134,11 @@ export class SpectatorRecorder {
       startedAt: new Date(this.startedAt).toISOString(),
       ...(end ? { endedAt: new Date().toISOString(), finalScore: end.score, stats: end.stats, simTicks: this.tickN } : {}),
       difficulty: this.info.difficulty,
+      botVersion: this.info.difficulty === 'ultrahard' ? BOSS_VERSION : undefined,
       matchLengthSeconds: this.info.matchLength,
       players: this.info.names.map((name, i) => ({ index: i, name, team: this.info.teams[i], isBot: i === this.info.botIndex })),
       arena: { halfWidthX: ARENA.halfWidth, halfLengthY: ARENA.halfLength, goalBackY: ARENA.goal.backY, ceilingZ: ARENA.ceilingHeight, goalHalfWidth: ARENA.goal.halfWidth, goalHeight: ARENA.goal.height },
-      video: { file: `video.${this.ext}`, width: W, height: H, fps: FPS, note: 'Fixed overhead camera. Blue defends the left goal (-Y), orange the right (+Y). Rings = cars, ticks = heading, dashed line = the bot\'s current target.' },
+      video: { file: `video.${this.ext}`, width: W, height: H, fps: FPS, note: 'Fixed overhead camera. Blue defends the left goal (-Y), orange the right (+Y). Rings = cars, ticks = heading, dashed line = the bot\'s current target. Goal replays and paused time are cut from the video; telemetry marks them with {k:"v", video:"hold"|"resume"} lines.' },
       telemetry: {
         file: 'telemetry.ndjson', simTickRate: PHYSICS.tickRate, loggedEveryTicks: LOG_EVERY,
         units: 'Unreal units (uu); 1 car length ~ 118 uu; speeds in uu/s; clock in seconds remaining',
@@ -178,7 +204,7 @@ export class SpectatorRecorder {
 
   // ------------------------------------------------------------ video frames (called once per drawn frame, live state only)
   frame(s: RenderSnap, dt: number): void {
-    if (this.failed || this.paused || !this.mr) return;
+    if (this.failed || this.held || !this.mr) return;
     this.acc += dt;
     if (this.acc < 1 / FPS) return;
     this.acc = this.acc > 2 / FPS ? 0 : this.acc - 1 / FPS;

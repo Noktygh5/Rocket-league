@@ -11,6 +11,15 @@ const STALE_INPUT_MS = 300; // no input packet for this long: stop repeating the
 const MATCH_GRACE_MS = 90_000; // keep a running match alive this long with nobody connected
 const LOBBY_GRACE_MS = 5_000;
 const MAX_FUTURE_TICKS = 240;
+const MAX_CATCHUP = 8; // sim steps allowed per wake-up when the loop is late
+// A snapshot is skipped for a connection that still has this much unsent data: after a network stall the client then
+// gets the freshest state instead of seconds of stale snapshots in one burst (which would freeze and rubber-band it).
+const SNAP_BACKLOG_BYTES = 3000;
+const SNAP_EVERY = Math.max(1, Number(process.env.SNAP_EVERY ?? 2)); // sim ticks between snapshots (2 = 60 per second)
+const SLOW_TPS = 100; // below this many sim ticks per second the server is considered to be struggling
+
+/** Per-room timing of the sim loop, sampled once a second. */
+export interface LoopHealth { tps: number; lateMs: number; dropped: number }
 
 export interface Player {
   id: number;
@@ -55,6 +64,12 @@ export class Room {
   private matchIndex = 0;
   private forfeitTimer: NodeJS.Timeout | null = null;
   private roster: { name: string; team: 0 | 1 }[] = [];
+  /** Latest one-second sample of how the sim loop is keeping up (tps should be PHYSICS.tickRate). */
+  health: LoopHealth = { tps: PHYSICS.tickRate, lateMs: 0, dropped: 0 };
+  private winStart = 0;
+  private winTicks = 0;
+  private winLate = 0;
+  private winDropped = 0;
   private seed = 0;
 
   /** `mode` is the team size: 1 = 1v1, 2 = 2v2, 3 = 3v3 (beta, larger map). */
@@ -101,7 +116,7 @@ export class Room {
     if (this.state === 'playing' && this.sim) {
       this.send(p, { t: 'start', you: p.carIndex, players: this.roster, seed: this.seed, matchLength: MATCH.length, tick: this.sim.tick });
       this.broadcast({ t: 'back', name: p.name });
-      if (!this.timer) { this.nextAt = performance.now() + 50; this.loop(); } // the loop pauses while nobody is connected
+      if (!this.timer) { this.nextAt = performance.now() + 50; this.winStart = 0; this.loop(); } // the loop pauses while nobody is connected
       this.checkForfeit();
     }
     this.broadcastLobby();
@@ -228,6 +243,7 @@ export class Room {
     for (const p of ps) this.send(p, { t: 'start', you: p.carIndex, players, seed, matchLength: MATCH.length, tick: 0 });
     this.broadcastLobby();
     this.nextAt = performance.now() + 100;
+    this.winStart = 0; this.winTicks = 0; this.winLate = 0; this.winDropped = 0;
     this.loop();
   }
 
@@ -257,21 +273,41 @@ export class Room {
 
   // ------------------------------------------------------------ simulation loop
   private stopLoop(): void {
-    if (this.timer) { clearTimeout(this.timer); clearImmediate(this.timer as unknown as NodeJS.Immediate); this.timer = null; }
+    if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     if (this.forfeitTimer) { clearTimeout(this.forfeitTimer); this.forfeitTimer = null; }
   }
 
-  /** Drift-correcting fixed-rate loop: sleeps with setTimeout, then spins with setImmediate for the last ~2 ms. */
+  /**
+   * Drift-correcting fixed-rate loop. It only sleeps (no busy-waiting): a free Render instance gets ~0.1 CPU,
+   * and spinning would burn that quota and get the whole process throttled. If it falls far behind it skips
+   * the backlog instead of snowballing; clients notice the lower tick rate and slow down with it.
+   */
   private loop = (): void => {
     if (this.state !== 'playing' || !this.sim) return;
     const now = performance.now();
+    if (now - this.nextAt > this.winLate) this.winLate = now - this.nextAt;
     let steps = 0;
-    while (this.nextAt <= now && steps < 5) { this.stepOnce(); this.nextAt += DT_MS; steps++; }
-    if (steps === 5 && this.nextAt <= now) this.nextAt = now + DT_MS; // fell behind: drop the backlog
+    while (this.nextAt <= now && steps < MAX_CATCHUP) { this.stepOnce(); this.nextAt += DT_MS; steps++; }
+    this.winTicks += steps;
+    if (this.nextAt <= now) { // still behind after catching up: drop the rest rather than spiral
+      this.winDropped += Math.ceil((now - this.nextAt) / DT_MS);
+      this.nextAt = now + DT_MS;
+    }
+    this.sampleHealth(now);
     if (this.state !== 'playing') return;
-    const wait = this.nextAt - performance.now();
-    this.timer = (wait > 3 ? setTimeout(this.loop, wait - 2) : setImmediate(this.loop)) as unknown as NodeJS.Timeout;
+    this.timer = setTimeout(this.loop, Math.max(0, this.nextAt - performance.now()));
   };
+
+  private sampleHealth(now: number): void {
+    if (this.winStart === 0) { this.winStart = now; return; }
+    const span = now - this.winStart;
+    if (span < 1000) return;
+    this.health = { tps: (this.winTicks * 1000) / span, lateMs: this.winLate, dropped: this.winDropped };
+    if (this.health.tps < SLOW_TPS && this.sim && this.sim.phase !== Phase.Countdown) {
+      console.warn(`[room ${this.code}] server running slow: ${this.health.tps.toFixed(0)}/${PHYSICS.tickRate} ticks/s, worst delay ${this.health.lateMs.toFixed(0)} ms, ${this.health.dropped} ticks dropped`);
+    }
+    this.winStart = now; this.winTicks = 0; this.winLate = 0; this.winDropped = 0;
+  }
 
   private stepOnce(): void {
     const sim = this.sim as GameSim;
@@ -293,10 +329,10 @@ export class Room {
     const hadScoreEvent = this.events.some((e) => e.type === 'goal' || e.type === 'demo' || e.type === 'end');
     this.events.length = 0;
 
-    if (sim.tick % 2 === 0) {
+    if (sim.tick % SNAP_EVERY === 0) {
       const snap = encodeSnapshot(sim);
       for (const p of this.players.values()) {
-        if (p.connected && p.ws.readyState === 1 && p.ws.bufferedAmount < 1_000_000) p.ws.send(snap, { binary: true });
+        if (p.connected && p.ws.readyState === 1 && p.ws.bufferedAmount < SNAP_BACKLOG_BYTES) p.ws.send(snap, { binary: true });
       }
     }
     const wallMs = Date.now();

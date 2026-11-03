@@ -45,6 +45,7 @@ export class OnlineGame {
     this.names = info.players.map((p) => p.name);
     const cfg = { ...defaultConfig(info.players.map((p) => ({ team: p.team, name: p.name })), info.seed), matchLength: info.matchLength };
     this.pred = new ClientPredictor(cfg, info.you);
+    this.pred.deferReconcile = true; // after a network stall a burst of snapshots arrives: reconcile once per frame, not once each
     this.view = new GameView(canvas, uiRoot, { names: this.names, teams: info.players.map((p) => p.team), localIndex: info.you, replay: true });
     this.snap = makeSnap(info.players.length);
     this.snap.localIndex = info.you;
@@ -106,6 +107,7 @@ export class OnlineGame {
     if (dt > 0.25) dt = 0.016;
     this.fps += (1 / Math.max(dt, 1e-4) - this.fps) * 0.05;
     const pred = this.pred;
+    pred.reconcile();
 
     if (now >= this.nextPing) {
       this.nextPing = now + (pred.hasSync ? 1000 : 120);
@@ -128,8 +130,9 @@ export class OnlineGame {
     this.buildSnap(now);
     this.view.scoreboard = this.input.scoreboard;
     this.view.camera.rearView = this.input.rearView;
-    const unstable = now - this.lastSnapAt > 600 || pred.rtt > 300;
-    this.view.present(this.snap, dt, { fps: this.fps, ping: pred.hasSync ? pred.rtt : -1, unstable });
+    const serverSlow = pred.tps < PHYSICS.tickRate * 0.93; // the server itself is running below real time (starved CPU)
+    const unstable = now - this.lastSnapAt > 600 || pred.rtt > 300 || serverSlow;
+    this.view.present(this.snap, dt, { fps: this.fps, ping: pred.hasSync ? pred.rtt : -1, unstable, serverTps: pred.tps });
     this.pendingEvents.length = 0;
     if (this.snap.phase === 3 && !this.endedFired && pred.latest && pred.latest.phase === 3) {
       this.endedFired = true;

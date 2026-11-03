@@ -37,6 +37,14 @@ export class ClientPredictor {
   private synced = false;
   private sampleCount = 0;
   private lastSnap: SnapData | null = null;
+  /** When true, onSnapshot only buffers and reconcile() (called once per frame) does the rewind-and-replay. */
+  deferReconcile = false;
+  /** Ticks re-simulated while reconciling (diagnostics). */
+  replayedTicks = 0;
+  /** Server sim ticks per second, measured from pongs. Equals TICKS_PER_SEC unless the server is running slow. */
+  tps = TICKS_PER_SEC;
+  private pending: SnapData | null = null;
+  private pongs: { t: number; tick: number }[] = [];
 
   constructor(config: SimConfig, readonly localIndex: number) {
     this.sim = new GameSim(config);
@@ -50,22 +58,46 @@ export class ClientPredictor {
     const rtt = nowMs - sentMs;
     this.rtt = this.sampleCount === 0 ? rtt : this.rtt * 0.8 + rtt * 0.2;
     this.sampleCount++;
-    const est = serverTick + (rtt / 2) * (TICKS_PER_SEC / 1000) - nowMs * (TICKS_PER_SEC / 1000);
-    // trust the lowest-latency samples most, but let the estimate drift to follow clock skew
-    if (!this.synced || rtt <= this.bestRtt * 1.15) {
+    const rateChanged = this.noteRate(nowMs, serverTick);
+    const k = this.tps / 1000;
+    const est = serverTick + (rtt / 2) * k - nowMs * k;
+    if (rateChanged) {
+      this.tickOffset = est; // the old offset was computed at a different rate
+      this.bestRtt = rtt;
+      this.synced = true;
+    } else if (!this.synced || rtt <= this.bestRtt * 1.15) {
+      // trust the lowest-latency samples most, but let the estimate drift to follow clock skew
       this.tickOffset = this.synced ? this.tickOffset * 0.7 + est * 0.3 : est;
       this.bestRtt = Math.min(this.bestRtt * 1.02 + 0.5, rtt);
       this.synced = true;
     }
   }
 
+  /**
+   * Tracks how fast the server's sim really runs. A starved server (free hosting) can fall behind real time;
+   * following its rate makes everyone slow down together instead of the client racing ahead and getting yanked back.
+   * Returns true when the rate was changed. Ordinary jitter stays inside the dead band and leaves the nominal rate.
+   */
+  private noteRate(nowMs: number, serverTick: number): boolean {
+    const p = this.pongs;
+    p.push({ t: nowMs, tick: serverTick });
+    if (p.length > 10) p.shift();
+    const span = p[p.length - 1].t - p[0].t;
+    if (span < 3000) return false;
+    const measured = ((p[p.length - 1].tick - p[0].tick) / span) * 1000;
+    const next = measured < TICKS_PER_SEC * 0.93 && measured > TICKS_PER_SEC * 0.2 ? measured : TICKS_PER_SEC;
+    const changed = Math.abs(next - this.tps) > TICKS_PER_SEC * 0.01;
+    if (changed) this.tps = next;
+    return changed;
+  }
+
   estServerTick(nowMs: number): number {
-    return nowMs * (TICKS_PER_SEC / 1000) + this.tickOffset;
+    return nowMs * (this.tps / 1000) + this.tickOffset;
   }
 
   /** Tick the client should be simulating now: ahead of the server by transit time plus jitter slack. */
   targetTick(nowMs: number): number {
-    const lead = Math.ceil((this.rtt / 2) * (TICKS_PER_SEC / 1000)) + 4;
+    const lead = Math.ceil((this.rtt / 2) * (this.tps / 1000)) + 4;
     return Math.floor(this.estServerTick(nowMs)) + lead;
   }
 
@@ -107,7 +139,18 @@ export class ClientPredictor {
     this.lastSnap = s;
     this.buffer.push(s);
     if (this.buffer.length > 24) this.buffer.shift();
+    this.pending = s;
+    if (!this.deferReconcile) this.reconcile();
+  }
 
+  /**
+   * Rewinds to the newest snapshot received and replays the inputs it has not acknowledged. After a network stall a
+   * burst of snapshots arrives at once; with deferReconcile this runs once for the burst instead of once per snapshot.
+   */
+  reconcile(): void {
+    const s = this.pending;
+    if (!s) return;
+    this.pending = null;
     const sim = this.sim;
     const me = sim.cars[this.localIndex];
     const oldCar = new Vec3(me.pos.x + this.carOff.x, me.pos.y + this.carOff.y, me.pos.z + this.carOff.z);
@@ -119,6 +162,7 @@ export class ClientPredictor {
       this.applyInputs(t);
       sim.step();
       sim.events.length = 0;
+      this.replayedTicks++;
     }
     sim.tick = this.tick;
 

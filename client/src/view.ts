@@ -59,7 +59,7 @@ export interface ViewOptions {
   replay: boolean;
 }
 
-export interface FrameExtras { fps: number; ping: number; unstable: boolean }
+export interface FrameExtras { fps: number; ping: number; unstable: boolean; /** Online: ticks per second the server is really running (nominal when healthy). */ serverTps?: number }
 
 /** Camera + world + HUD + audio for one running match. Source-agnostic: feed it RenderSnaps. */
 export class GameView {
@@ -254,7 +254,10 @@ export class GameView {
     this.fillFrame(view);
     this.setCam(this.pose);
     this.world.render(this.frame, dt);
-    if (this.recorder && !playing) this.recorder.frame(s, dt); // live state only: replays are not part of the recording
+    if (this.recorder) {
+      this.recorder.replaying = playing; // replays are cut from the recording (the video pauses)
+      if (!playing) this.recorder.frame(s, dt);
+    }
     const camW = this.world.camera, W = window.innerWidth, Hh = window.innerHeight;
     for (let i = 0; i < this.tags.length; i++) {
       const c = view.cars[i], el = this.tags[i];
@@ -296,7 +299,7 @@ export class GameView {
     }
 
     this.hud.update(s, {
-      ballCam: this.camera.ballCam, fps: ex.fps, ping: ex.ping, unstable: ex.unstable,
+      ballCam: this.camera.ballCam, fps: ex.fps, ping: ex.ping, unstable: ex.unstable, serverTps: ex.serverTps ?? 0,
       replay: playing, scoreboard: this.scoreboard || s.phase === 3, names: this.opts.names,
     });
   }

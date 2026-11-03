@@ -37,6 +37,17 @@ function loadFile(file: string): { body: Buffer; gz: Buffer | null; type: string
 }
 
 const rooms = new Map<string, Room>();
+
+// Process CPU use over the last few seconds (percent of one core), shown in /health.
+let cpuPct = 0;
+{
+  let last = process.cpuUsage(), lastAt = performance.now();
+  setInterval(() => {
+    const now = performance.now(), u = process.cpuUsage(last);
+    cpuPct = ((u.user + u.system) / 1000 / (now - lastAt)) * 100;
+    last = process.cpuUsage(); lastAt = now;
+  }, 5000).unref();
+}
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O
 
 function newCode(): string {
@@ -59,7 +70,14 @@ const http = createServer((req, res) => {
   const url = (req.url ?? '/').split('?')[0];
   if (url === '/health') {
     res.writeHead(200, { 'content-type': 'application/json', 'access-control-allow-origin': '*' });
-    res.end(JSON.stringify({ ok: true, rooms: rooms.size, protocol: PROTOCOL_VERSION }));
+    // tps should equal the sim tick rate (120) while a match runs; cpuPct near 10 on a free Render instance means it is being throttled
+    const playing = [...rooms.values()].filter((r) => r.state === 'playing');
+    res.end(JSON.stringify({
+      ok: true, rooms: rooms.size, protocol: PROTOCOL_VERSION, connections, playing: playing.length,
+      tps: playing.length ? Math.round(Math.min(...playing.map((r) => r.health.tps))) : null,
+      worstLoopDelayMs: playing.length ? Math.round(Math.max(...playing.map((r) => r.health.lateMs))) : null,
+      cpuPct: Math.round(cpuPct * 10) / 10,
+    }));
     return;
   }
   if (handleRecording(req, res, url)) return;

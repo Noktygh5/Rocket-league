@@ -1,4 +1,4 @@
-import { CAR } from '@turboball/shared';
+import { CAR, PHYSICS } from '@turboball/shared';
 import type { RenderSnap } from './snap';
 import { settings } from './settings';
 
@@ -63,7 +63,7 @@ export class Hud {
     if (this.last[key] !== text) { this.last[key] = text; node.textContent = text; }
   }
 
-  update(s: RenderSnap, opts: { ballCam: boolean; fps: number; ping: number; unstable: boolean; replay: boolean; scoreboard: boolean; names: string[] }): void {
+  update(s: RenderSnap, opts: { ballCam: boolean; fps: number; ping: number; unstable: boolean; serverTps: number; replay: boolean; scoreboard: boolean; names: string[] }): void {
     this.set('sc0', this.q('#sc0'), String(s.score[0]));
     this.set('sc1', this.q('#sc1'), String(s.score[1]));
     const clock = this.q('#clock');
@@ -94,6 +94,7 @@ export class Hud {
     const parts: string[] = [];
     if (settings.showFps) parts.push(`${Math.round(opts.fps)} FPS`);
     if (settings.showPing && opts.ping >= 0) parts.push(`${Math.round(opts.ping)} ms`);
+    if (settings.showPing && opts.serverTps > 0 && opts.serverTps < PHYSICS.tickRate * 0.93) parts.push(`SERVER SLOW ${Math.round((opts.serverTps / PHYSICS.tickRate) * 100)}%`);
     this.set('fps', this.fpsEl, parts.join('  ·  '));
 
     // countdown

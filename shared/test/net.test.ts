@@ -46,19 +46,41 @@ describe('protocol', () => {
 /**
  * In-process server + client with latency, jitter and loss. Time advances in 1/120 s steps.
  */
-function simulate(opts: { oneWayMs: number; jitterMs: number; loss: number; seconds: number }) {
+function simulate(opts: {
+  oneWayMs: number; jitterMs: number; loss: number; seconds: number;
+  /** TCP-style stalls: every `stallEveryMs` the link freezes for `stallMs`, then delivers everything in order at once. */
+  stallEveryMs?: number; stallMs?: number;
+  /** Server stops queueing stale snapshots behind a stalled connection; client reconciles once per frame. */
+  fixed?: boolean;
+  /** Fraction of real time the server's sim actually runs (< 1 emulates a CPU-starved host). */
+  serverSpeed?: number;
+}) {
   const rng = new Prng(99);
   const server = new GameSim(cfg());
   const serverBot = new Bot('medium', server, 1, 3);
   const client = new ClientPredictor(cfg(), 0);
+  client.deferReconcile = !!opts.fixed;
   const dtMs = 1000 * PHYSICS.dt;
 
   type Msg = { at: number; fn: () => void };
   const toServer: Msg[] = [], toClient: Msg[] = [];
+  const lastAt = new Map<Msg[], number>();
+  const stallEnd = (now: number): number => {
+    if (!opts.stallMs || !opts.stallEveryMs) return 0;
+    const into = (now - 1000) % opts.stallEveryMs;
+    return into < opts.stallMs ? now - into + opts.stallMs : 0;
+  };
   const send = (q: Msg[], now: number, fn: () => void, unreliable = true): void => {
     if (unreliable && rng.next() < opts.loss) return;
-    q.push({ at: now + opts.oneWayMs + rng.next() * opts.jitterMs, fn });
+    let at = now + opts.oneWayMs + rng.next() * opts.jitterMs;
+    if (opts.stallMs) { // a stalled connection holds everything back, then delivers it in order
+      at = Math.max(at, stallEnd(now) + opts.oneWayMs, lastAt.get(q) ?? 0);
+      lastAt.set(q, at);
+    }
+    q.push({ at, fn });
   };
+  let pendingSnaps = 0;
+  let credit = 0;
   const deliver = (q: Msg[], now: number): void => {
     for (let i = 0; i < q.length;) { if (q[i].at <= now) { q[i].fn(); q.splice(i, 1); } else i++; }
   };
@@ -79,20 +101,25 @@ function simulate(opts: { oneWayMs: number; jitterMs: number; loss: number; seco
     now += dtMs;
     deliver(toServer, now); deliver(toClient, now);
 
-    // server tick
-    const T = server.tick + 1;
-    const inp = inputByTick.get(T);
-    if (inp) lastInput = inp;
-    server.inputs[0].copy(lastInput);
-    serverBot.think();
-    server.step();
-    server.events.length = 0;
-    serverHist.set(server.tick, { x: server.cars[0].pos.x, y: server.cars[0].pos.y, bx: server.ball.pos.x, by: server.ball.pos.y });
-    if (server.tick % 2 === 0) {
-      const snap = decodeSnapshot(encodeSnapshot(server))!;
-      send(toClient, now, () => client.onSnapshot(snap));
-    }
+    // server tick (serverSpeed < 1 emulates a host that cannot keep up with real time)
+    credit += opts.serverSpeed ?? 1;
+    if (credit >= 1) {
+      credit -= 1;
+      const T = server.tick + 1;
+      const inp = inputByTick.get(T);
+      if (inp) lastInput = inp;
+      server.inputs[0].copy(lastInput);
+      serverBot.think();
+      server.step();
+      server.events.length = 0;
+      serverHist.set(server.tick, { x: server.cars[0].pos.x, y: server.cars[0].pos.y, bx: server.ball.pos.x, by: server.ball.pos.y });
+      if (server.tick % 2 === 0 && !(opts.fixed && pendingSnaps >= 7)) {
+        const snap = decodeSnapshot(encodeSnapshot(server))!;
+        if (opts.fixed) pendingSnaps++;
+        send(toClient, now, () => { if (opts.fixed) pendingSnaps--; client.onSnapshot(snap); });
+      }
 
+    }
     // client
     if (now >= nextPing) {
       nextPing = now + 500;
@@ -102,6 +129,7 @@ function simulate(opts: { oneWayMs: number; jitterMs: number; loss: number; seco
         send(toClient, now, () => client.onPong(sent, tick, sent + opts.oneWayMs * 2 + opts.jitterMs / 2), false);
       }, false);
     }
+    client.reconcile();
     if (client.hasSync) {
       const target = client.targetTick(now);
       let guard = 0;
@@ -163,5 +191,28 @@ describe('netcode (simulated network)', () => {
     expect(Number.isFinite(me.pos.x)).toBe(true);
     expect(Math.abs(me.pos.x)).toBeLessThan(4200);
     expect(client.tick - client.lastServerTick).toBeLessThan(120);
+  });
+
+  it('a TCP-style stall: the snapshot burst is reconciled once, cutting replay work, with bounded error', () => {
+    const stall = { oneWayMs: 40, jitterMs: 5, loss: 0, seconds: 30, stallEveryMs: 4000, stallMs: 900 };
+    const base = simulate(stall);
+    const fixed = simulate({ ...stall, fixed: true });
+    expect(fixed.client.replayedTicks).toBeLessThan(base.client.replayedTicks * 0.7);
+    expect(fixed.client.snaps).toBeLessThan(6);
+    expect(fixed.client.maxBlend).toBeLessThan(350);
+  });
+
+  it('follows a server that runs below real time instead of racing ahead of it', () => {
+    const r = simulate({ oneWayMs: 40, jitterMs: 5, loss: 0, seconds: 40, serverSpeed: 0.6 });
+    expect(r.client.tps).toBeGreaterThan(120 * 0.6 * 0.9);
+    expect(r.client.tps).toBeLessThan(120 * 0.6 * 1.1);
+    const mean = r.errs.reduce((a, b) => a + b, 0) / Math.max(1, r.errs.length);
+    expect(mean).toBeLessThan(150);
+    expect(r.client.snaps).toBeLessThan(6);
+  });
+
+  it('keeps the nominal tick rate on a healthy but jittery link', () => {
+    const r = simulate({ oneWayMs: 60, jitterMs: 30, loss: 0.02, seconds: 30 });
+    expect(r.client.tps).toBe(120);
   });
 });
