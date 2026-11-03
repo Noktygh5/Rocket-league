@@ -253,6 +253,7 @@ export interface LobbyPlayer { id: number; name: string; team: 0 | 1; ready: boo
 export type ClientMsg =
   | { t: 'create'; name: string; mode: 1 | 2 | 3; v: number }
   | { t: 'join'; name: string; code: string; v: number }
+  | { t: 'rejoin'; code: string; token: string; v: number }
   | { t: 'team'; team: 0 | 1 }
   | { t: 'ready'; ready: boolean }
   | { t: 'start' }
@@ -261,11 +262,12 @@ export type ClientMsg =
   | { t: 'ping'; c: number };
 
 export type ServerMsg =
-  | { t: 'welcome'; id: number; code: string; v: number }
+  | { t: 'welcome'; id: number; code: string; token: string; v: number }
   | { t: 'lobby'; code: string; mode: 1 | 2 | 3; hostId: number; state: 'lobby' | 'playing' | 'ended'; players: LobbyPlayer[] }
   | { t: 'start'; you: number; players: { name: string; team: 0 | 1 }[]; seed: number; matchLength: number; tick: number }
   | { t: 'ev'; type: string; a: number; b: number; v: number }
   | { t: 'stats'; stats: { goals: number; saves: number; shots: number; demos: number; score: number }[] }
   | { t: 'pong'; c: number; tick: number }
   | { t: 'left'; name: string }
+  | { t: 'back'; name: string }
   | { t: 'err'; msg: string };

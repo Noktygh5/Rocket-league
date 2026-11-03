@@ -279,7 +279,7 @@ export const CAMERA_DEFAULTS = {
 };
 
 export const NET = {
-  protocolVersion: 1,
+  protocolVersion: 2,
   inputRate: 60,
   snapshotRate: 60,
   inputRedundancy: 3,

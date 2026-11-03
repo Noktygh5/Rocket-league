@@ -7,6 +7,21 @@ import { App, h } from './ui';
 type Mode = 1 | 2 | 3;
 const MODE_LABEL: Record<Mode, string> = { 1: '1 v 1', 2: '2 v 2', 3: '3 v 3 BETA' };
 
+/** Lets this tab reattach to its match after a dropped connection or a page refresh. */
+interface Session { code: string; token: string }
+const SESSION_KEY = 'tb-session';
+const COLD_START_MS = 90_000; // free Render instances can take about a minute to wake up
+
+function loadSession(): Session | null {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(SESSION_KEY) ?? 'null') as Session | null;
+    return s && typeof s.code === 'string' && typeof s.token === 'string' ? s : null;
+  } catch { return null; }
+}
+function saveSession(s: Session | null): void {
+  try { if (s) sessionStorage.setItem(SESSION_KEY, JSON.stringify(s)); else sessionStorage.removeItem(SESSION_KEY); } catch { /* storage blocked */ }
+}
+
 interface LobbyState { code: string; mode: Mode; hostId: number; state: string; players: LobbyPlayer[] }
 
 /** Online menu, room lobby and in-match lifecycle. */
@@ -15,11 +30,17 @@ export class OnlineUi {
   private myId = -1;
   private lobby: LobbyState | null = null;
   private game: OnlineGame | null = null;
-  private pendingJoin: string | null = null;
-  private pendingCreate: Mode | null = null;
 
   constructor(private app: App) {
     app.onlineMenu = () => this.menu();
+  }
+
+  /** Reattaches to a match this tab was in before a refresh; returns false when there is nothing to resume. */
+  resume(): boolean {
+    const s = loadSession();
+    if (!s) return false;
+    this.connect({ rejoin: s, quiet: true });
+    return true;
   }
 
   /** Called when the page is opened with ?room=CODE. */
@@ -64,27 +85,65 @@ export class OnlineUi {
     if (prefill) this.app.toast(`Room ${prefill}: enter your name and press JOIN`);
   }
 
-  private connect(o: { create?: Mode; join?: string }): void {
-    this.pendingCreate = o.create ?? null;
-    this.pendingJoin = o.join ?? null;
-    this.app.screen(h('div', { class: 'loading' }, 'CONNECTING…'));
-    const conn = new Connection();
-    this.conn = conn;
-    let opened = false;
+  private connect(o: { create?: Mode; join?: string; rejoin?: Session; quiet?: boolean }): void {
+    const deadline = Date.now() + COLD_START_MS;
+    this.app.screen(h('div', { class: 'loading' }, o.rejoin ? 'RECONNECTING…' : 'CONNECTING…'));
     const fail = (msg: string): void => { this.leaveRoom(false); this.app.toast(msg, 5000); this.menu(); };
-    const timer = setTimeout(() => { if (!opened) fail('Could not reach the server (it may be waking up — try again in a few seconds)'); }, 12000);
-    conn.onOpen = () => {
-      opened = true; clearTimeout(timer);
-      if (this.pendingCreate) conn.sendJson({ t: 'create', name: settings.name, mode: this.pendingCreate, v: PROTOCOL_VERSION });
-      else conn.sendJson({ t: 'join', name: settings.name, code: this.pendingJoin, v: PROTOCOL_VERSION });
+    const attempt = (): void => {
+      const conn = new Connection();
+      this.conn = conn;
+      let opened = false, settled = false;
+      // Never reached the server: keep retrying until the deadline (a sleeping free instance needs ~a minute).
+      const unreachable = (): void => {
+        if (settled || this.conn !== conn) return;
+        settled = true; clearTimeout(timer); conn.close();
+        if (Date.now() >= deadline) { fail('Could not reach the server. Check your connection and try again'); return; }
+        this.app.screen(h('div', { class: 'loading' }, 'WAKING UP THE SERVER… (can take up to a minute)'));
+        setTimeout(() => { if (this.conn === conn) attempt(); }, 1500);
+      };
+      const timer = setTimeout(unreachable, 8000);
+      conn.onOpen = () => {
+        opened = true; settled = true; clearTimeout(timer);
+        if (o.rejoin) conn.sendJson({ t: 'rejoin', code: o.rejoin.code, token: o.rejoin.token, v: PROTOCOL_VERSION });
+        else if (o.create) conn.sendJson({ t: 'create', name: settings.name, mode: o.create, v: PROTOCOL_VERSION });
+        else conn.sendJson({ t: 'join', name: settings.name, code: o.join, v: PROTOCOL_VERSION });
+      };
+      conn.onClose = () => {
+        if (this.conn !== conn) return;
+        if (!opened) unreachable();
+        else if (!this.game) fail('Connection closed');
+      };
+      conn.onJson = (m) => {
+        if (o.rejoin && m.t === 'err') {
+          saveSession(null);
+          if (o.quiet) { this.leaveRoom(false); this.menu(); } else fail(String(m.msg));
+          return;
+        }
+        this.onMessage(m);
+      };
     };
-    conn.onClose = () => { clearTimeout(timer); if (!this.game) fail('Connection closed'); };
-    conn.onJson = (m) => this.onMessage(m);
+    attempt();
+  }
+
+  /** The connection dropped mid-match: tear the game down and try to slip back into the same match. */
+  private recover(): void {
+    const s = loadSession();
+    this.game?.stop();
+    this.game = null;
+    this.conn?.close();
+    this.conn = null;
+    this.app.stopActive = null;
+    if (!s) { this.app.toast('Disconnected from server', 5000); this.app.mainMenu(); return; }
+    this.app.toast('Connection lost, reconnecting…', 4000);
+    this.connect({ rejoin: s });
   }
 
   private onMessage(m: Record<string, unknown>): void {
     switch (m.t) {
-      case 'welcome': this.myId = Number(m.id); break;
+      case 'welcome':
+        this.myId = Number(m.id);
+        if (typeof m.token === 'string') saveSession({ code: String(m.code), token: m.token });
+        break;
       case 'lobby':
         this.lobby = { code: String(m.code), mode: m.mode as Mode, hostId: Number(m.hostId), state: String(m.state), players: m.players as LobbyPlayer[] };
         if (!this.game) this.renderLobby();
@@ -92,6 +151,7 @@ export class OnlineUi {
       case 'start': this.startMatch(m as unknown as StartInfo); break;
       case 'err': this.app.toast(String(m.msg), 4500); break;
       case 'left': this.app.toast(`${String(m.name)} left`); break;
+      case 'back': this.app.toast(`${String(m.name)} is back`); break;
       default: break;
     }
   }
@@ -137,7 +197,7 @@ export class OnlineUi {
     this.game = g;
     this.app.stopActive = () => { g.stop(); };
     g.onPauseRequest = () => this.pauseMenu();
-    g.onDisconnect = () => { this.app.toast('Disconnected from server', 5000); this.leaveRoom(false); this.app.mainMenu(); };
+    g.onDisconnect = () => this.recover();
     g.onEnd = (snap, names) => this.app.matchResult(snap, names, false, {
       rematch: () => { this.conn?.sendJson({ t: 'rematch' }); this.app.toast('Waiting for the other players…'); },
       leave: () => { this.leaveRoom(true); this.app.mainMenu(); },
@@ -157,6 +217,7 @@ export class OnlineUi {
   }
 
   private leaveRoom(notify: boolean): void {
+    if (notify) saveSession(null);
     if (this.conn && notify && this.conn.open) this.conn.sendJson({ t: 'leave' });
     this.game?.stop();
     this.game = null;

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import type { WebSocket } from 'ws';
 import {
   CarInput, ClientMsg, GameSim, LobbyPlayer, MATCH, PHYSICS, Phase, ServerMsg, SimEvent, decodeInputPacket,
@@ -5,7 +6,10 @@ import {
 } from '@turboball/shared';
 
 const DT_MS = 1000 * PHYSICS.dt;
-const FORFEIT_MS = 10_000;
+const FORFEIT_MS = 20_000; // a whole team gone this long forfeits (long enough to reconnect)
+const STALE_INPUT_MS = 300; // no input packet for this long: stop repeating the last input
+const MATCH_GRACE_MS = 90_000; // keep a running match alive this long with nobody connected
+const LOBBY_GRACE_MS = 5_000;
 const MAX_FUTURE_TICKS = 240;
 
 export interface Player {
@@ -17,6 +21,9 @@ export interface Player {
   wantsRematch: boolean;
   connected: boolean;
   carIndex: number;
+  /** Secret that lets this player reattach after a dropped connection. */
+  token: string;
+  lastInputAt: number;
   last: CarInput;
   buf: Map<number, CarInput>;
   // rate limiting (token buckets)
@@ -47,12 +54,16 @@ export class Room {
   private lastStats = 0;
   private matchIndex = 0;
   private forfeitTimer: NodeJS.Timeout | null = null;
+  private roster: { name: string; team: 0 | 1 }[] = [];
+  private seed = 0;
 
   /** `mode` is the team size: 1 = 1v1, 2 = 2v2, 3 = 3v3 (beta, larger map). */
-  constructor(readonly code: string, readonly mode: 1 | 2 | 3, private onEmpty: (r: Room) => void) {}
+  constructor(readonly code: string, readonly mode: 1 | 2 | 3) {}
 
   get capacity(): number { return this.mode * 2; }
   get size(): number { return this.players.size; }
+  /** How long this room may sit with nobody connected before it is deleted. */
+  get emptyGraceMs(): number { return this.state === 'playing' ? MATCH_GRACE_MS : LOBBY_GRACE_MS; }
 
   // ------------------------------------------------------------ membership
   add(ws: WebSocket, name: string): Player | null {
@@ -61,19 +72,46 @@ export class Room {
     const orange = this.players.size - blue;
     const p: Player = {
       id: nextPlayerId++, ws, name, team: blue <= orange ? 0 : 1, ready: false, wantsRematch: false, connected: true, carIndex: -1,
-      last: new CarInput(), buf: new Map(), binTokens: 240, jsonTokens: 30, lastRefill: Date.now(), leftAt: 0,
+      token: randomUUID(), lastInputAt: 0, last: new CarInput(), buf: new Map(), binTokens: 240, jsonTokens: 30, lastRefill: Date.now(), leftAt: 0,
     };
     this.players.set(p.id, p);
     if (this.hostId < 0) this.hostId = p.id;
     this.emptySince = 0;
-    this.send(p, { t: 'welcome', id: p.id, code: this.code, v: 1 });
+    this.send(p, { t: 'welcome', id: p.id, code: this.code, token: p.token, v: 1 });
     this.broadcastLobby();
     return p;
   }
 
-  remove(id: number): void {
+  /** Reattaches a player whose connection dropped mid-match (matched by their secret token). */
+  rejoin(ws: WebSocket, token: string): Player | null {
+    if (!token) return null;
+    const p = [...this.players.values()].find((q) => q.token === token);
+    if (!p) return null;
+    const old = p.ws;
+    p.ws = ws;
+    p.connected = true;
+    p.leftAt = 0;
+    p.buf.clear();
+    p.last = new CarInput();
+    p.lastInputAt = performance.now();
+    p.binTokens = 240; p.jsonTokens = 30; p.lastRefill = Date.now();
+    this.emptySince = 0;
+    if (old !== ws) { try { old.close(); } catch { /* already gone */ } }
+    this.send(p, { t: 'welcome', id: p.id, code: this.code, token: p.token, v: 1 });
+    if (this.state === 'playing' && this.sim) {
+      this.send(p, { t: 'start', you: p.carIndex, players: this.roster, seed: this.seed, matchLength: MATCH.length, tick: this.sim.tick });
+      this.broadcast({ t: 'back', name: p.name });
+      if (!this.timer) { this.nextAt = performance.now() + 50; this.loop(); } // the loop pauses while nobody is connected
+      this.checkForfeit();
+    }
+    this.broadcastLobby();
+    return p;
+  }
+
+  /** `ws` identifies which connection closed, so a late close of a replaced socket is ignored. */
+  remove(id: number, ws?: WebSocket): void {
     const p = this.players.get(id);
-    if (!p) return;
+    if (!p || (ws && p.ws !== ws)) return;
     if (this.state === 'playing' && this.sim) {
       p.connected = false;
       p.leftAt = Date.now();
@@ -85,13 +123,10 @@ export class Room {
       this.broadcast({ t: 'left', name: p.name });
       this.broadcastLobby();
     }
-    if (![...this.players.values()].some((q) => q.connected)) this.shutdownSoon();
-  }
-
-  private shutdownSoon(): void {
-    this.stopLoop();
-    this.emptySince = Date.now();
-    this.onEmpty(this);
+    if (![...this.players.values()].some((q) => q.connected)) {
+      this.stopLoop();
+      this.emptySince = Date.now();
+    }
   }
 
   // ------------------------------------------------------------ messaging
@@ -122,6 +157,7 @@ export class Room {
     if (!this.allow(p, true) || !this.sim || this.state !== 'playing') return;
     const pk = decodeInputPacket(data);
     if (!pk) return;
+    p.lastInputAt = performance.now();
     const now = this.sim.tick;
     for (let k = 0; k < pk.inputs.length; k++) {
       const tick = pk.lastTick - (pk.inputs.length - 1 - k);
@@ -181,28 +217,41 @@ export class Room {
     ps.forEach((p, i) => { p.carIndex = i; p.buf.clear(); p.last.clear(); p.wantsRematch = false; });
     this.matchIndex++;
     const seed = (Date.now() ^ (this.matchIndex * 2654435761)) >>> 0;
+    this.seed = seed;
     this.sim = new GameSim({ ...defaultConfig(ps.map((p) => ({ team: p.team, name: p.name })), seed), matchLength: MATCH.length });
     this.state = 'playing';
     this.events.length = 0;
     const players = ps.map((p) => ({ name: p.name, team: p.team }));
+    this.roster = players;
+    const startedAt = performance.now();
+    for (const p of ps) p.lastInputAt = startedAt;
     for (const p of ps) this.send(p, { t: 'start', you: p.carIndex, players, seed, matchLength: MATCH.length, tick: 0 });
     this.broadcastLobby();
     this.nextAt = performance.now() + 100;
     this.loop();
   }
 
+  /** If one whole team is disconnected, the other team wins after FORFEIT_MS unless someone comes back. */
   private checkForfeit(): void {
-    if (this.forfeitTimer || this.mode !== 1 || this.state !== 'playing') return;
+    if (this.state !== 'playing' || !this.sim) return;
+    const alive = [0, 0];
+    for (const p of this.players.values()) if (p.connected) alive[p.team]++;
+    const gone = alive[0] === 0 && alive[1] > 0 ? 0 : alive[1] === 0 && alive[0] > 0 ? 1 : -1;
+    if (gone < 0) {
+      if (this.forfeitTimer) { clearTimeout(this.forfeitTimer); this.forfeitTimer = null; }
+      return;
+    }
+    if (this.forfeitTimer) return;
     this.forfeitTimer = setTimeout(() => {
       this.forfeitTimer = null;
       if (!this.sim || this.state !== 'playing') return;
-      const gone = [...this.players.values()].find((p) => !p.connected);
-      const stay = [...this.players.values()].find((p) => p.connected);
-      if (gone && stay) {
-        this.sim.score[stay.team] = Math.max(this.sim.score[stay.team], this.sim.score[gone.team] + 1);
-        this.sim.winner = stay.team;
-        this.sim.phase = Phase.Ended;
-      }
+      const still = [0, 0];
+      for (const p of this.players.values()) if (p.connected) still[p.team]++;
+      if (still[gone] > 0 || still[1 - gone] === 0) return;
+      const win = 1 - gone;
+      this.sim.score[win] = Math.max(this.sim.score[win], this.sim.score[gone] + 1);
+      this.sim.winner = win;
+      this.sim.phase = Phase.Ended;
     }, FORFEIT_MS);
   }
 
@@ -227,12 +276,14 @@ export class Room {
   private stepOnce(): void {
     const sim = this.sim as GameSim;
     const T = sim.tick + 1;
+    const nowMs = performance.now();
     for (const p of this.players.values()) {
       if (p.carIndex < 0) continue;
       const inp = sim.inputs[p.carIndex];
       if (!p.connected) { inp.clear(); continue; }
       const got = p.buf.get(T);
       if (got) p.last = got;
+      else if (nowMs - p.lastInputAt > STALE_INPUT_MS) p.last.clear(); // client stalled (hidden tab, lag spike): coast instead of driving blind
       inp.copy(p.last); // missing input: repeat the last known one
       if (T % 120 === 0) for (const k of p.buf.keys()) if (k < T - 20) p.buf.delete(k);
     }
@@ -248,9 +299,9 @@ export class Room {
         if (p.connected && p.ws.readyState === 1 && p.ws.bufferedAmount < 1_000_000) p.ws.send(snap, { binary: true });
       }
     }
-    const nowMs = Date.now();
-    if (hadScoreEvent || nowMs - this.lastStats > 1000) {
-      this.lastStats = nowMs;
+    const wallMs = Date.now();
+    if (hadScoreEvent || wallMs - this.lastStats > 1000) {
+      this.lastStats = wallMs;
       this.broadcast({ t: 'stats', stats: sim.stats.map((s) => ({ ...s })) });
     }
     if (sim.phase === Phase.Ended) {

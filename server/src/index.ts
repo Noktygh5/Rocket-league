@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, resolve } from 'node:path';
+import { gzipSync } from 'node:zlib';
 import { WebSocketServer, WebSocket } from 'ws';
 import { ClientMsg, PROTOCOL_VERSION } from '@turboball/shared';
 import { Player, Room, cleanName } from './room';
@@ -16,6 +17,21 @@ const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.map': 'application/json',
 };
+
+const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.map']);
+// The built client never changes while the server runs, so each file is read and compressed once.
+const fileCache = new Map<string, { body: Buffer; gz: Buffer | null; type: string }>();
+
+function loadFile(file: string): { body: Buffer; gz: Buffer | null; type: string } {
+  let f = fileCache.get(file);
+  if (!f) {
+    const ext = extname(file);
+    const body = readFileSync(file);
+    f = { body, gz: COMPRESSIBLE.has(ext) ? gzipSync(body, { level: 9 }) : null, type: MIME[ext] ?? 'application/octet-stream' };
+    fileCache.set(file, f);
+  }
+  return f;
+}
 
 const rooms = new Map<string, Room>();
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // no I or O
@@ -49,8 +65,14 @@ const http = createServer((req, res) => {
     if (!file.startsWith(staticDir)) { res.writeHead(403).end(); return; }
     if (!existsSync(file) || statSync(file).isDirectory()) file = join(staticDir, 'index.html');
     try {
-      const body = readFileSync(file);
-      res.writeHead(200, { 'content-type': MIME[extname(file)] ?? 'application/octet-stream', 'cache-control': file.includes('/assets/') ? 'public,max-age=31536000,immutable' : 'no-cache' });
+      const f = loadFile(file);
+      const gz = f.gz !== null && /\bgzip\b/.test(String(req.headers['accept-encoding'] ?? ''));
+      const body = gz ? (f.gz as Buffer) : f.body;
+      res.writeHead(200, {
+        'content-type': f.type, 'content-length': body.length, vary: 'accept-encoding',
+        ...(gz ? { 'content-encoding': 'gzip' } : {}),
+        'cache-control': file.includes('/assets/') ? 'public,max-age=31536000,immutable' : 'no-cache',
+      });
       res.end(body);
     } catch { res.writeHead(404).end(); }
     return;
@@ -60,6 +82,17 @@ const http = createServer((req, res) => {
 
 const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
 let connections = 0;
+
+// Heartbeat: ping every socket regularly. Dead (half-open) connections get dropped so rooms notice quickly,
+// and the steady traffic stops Render's proxy from closing idle lobby connections.
+const live = new WeakSet<WebSocket>();
+setInterval(() => {
+  for (const ws of wss.clients) {
+    if (!live.has(ws)) { ws.terminate(); continue; }
+    live.delete(ws);
+    try { ws.ping(); } catch { /* socket is closing */ }
+  }
+}, 15_000).unref();
 
 http.on('upgrade', (req, socket, head) => {
   if (!originOk(req.headers.origin, req.headers.host) || connections >= MAX_CONNECTIONS) {
@@ -72,6 +105,8 @@ http.on('upgrade', (req, socket, head) => {
 
 wss.on('connection', (ws: WebSocket) => {
   connections++;
+  live.add(ws);
+  ws.on('pong', () => live.add(ws));
   let room: Room | null = null;
   let player: Player | null = null;
   let strikes = 0;
@@ -79,6 +114,7 @@ wss.on('connection', (ws: WebSocket) => {
   const err = (msg: string): void => { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'err', msg })); };
 
   ws.on('message', (data, isBinary) => {
+    live.add(ws);
     try {
       if (isBinary) {
         if (room && player) {
@@ -91,6 +127,15 @@ wss.on('connection', (ws: WebSocket) => {
       try { m = JSON.parse(data.toString()) as ClientMsg; } catch { if (++strikes > 5) ws.close(1008); return; }
       if (!m || typeof m.t !== 'string') return;
 
+      if (m.t === 'rejoin') {
+        if (room) return;
+        if (m.v !== PROTOCOL_VERSION) { err('Version mismatch: please reload the page'); ws.close(1008, 'version'); return; }
+        const r = rooms.get(String(m.code ?? '').toUpperCase().slice(0, 5));
+        const p = r?.rejoin(ws, String(m.token ?? '').slice(0, 64));
+        if (!r || !p) { err('That match is no longer available'); return; }
+        room = r; player = p;
+        return;
+      }
       if (m.t === 'create' || m.t === 'join') {
         if (room) return;
         if (m.v !== PROTOCOL_VERSION) { err('Version mismatch: please reload the page'); ws.close(1008, 'version'); return; }
@@ -100,7 +145,7 @@ wss.on('connection', (ws: WebSocket) => {
           const code = newCode();
           if (!code) { err('Could not allocate a room'); return; }
           const mode = m.mode === 3 ? 3 : m.mode === 2 ? 2 : 1;
-          room = new Room(code, mode, (r) => { setTimeout(() => { if (r.players.size === 0 || ![...r.players.values()].some((p) => p.connected)) rooms.delete(r.code); }, 5000); });
+          room = new Room(code, mode);
           rooms.set(code, room);
         } else {
           const r = rooms.get(String(m.code ?? '').toUpperCase().slice(0, 5));
@@ -119,18 +164,26 @@ wss.on('connection', (ws: WebSocket) => {
 
   ws.on('close', () => {
     connections--;
-    if (room && player) room.remove(player.id);
+    if (room && player) room.remove(player.id, ws);
   });
   ws.on('error', () => ws.close());
 });
 
-// expire stale empty rooms
+// expire rooms nobody is connected to (a running match gets a longer grace period so players can reconnect)
 setInterval(() => {
   const now = Date.now();
   for (const [code, r] of rooms) {
-    if (r.emptySince && now - r.emptySince > 30_000) { rooms.delete(code); }
+    if (r.emptySince && now - r.emptySince > r.emptyGraceMs) { rooms.delete(code); }
   }
-}, 10_000).unref();
+}, 5_000).unref();
+
+// Render sends SIGTERM when it redeploys: tell players instead of dropping them silently.
+process.on('SIGTERM', () => {
+  for (const ws of wss.clients) {
+    try { ws.send(JSON.stringify({ t: 'err', msg: 'Server is restarting for an update' })); ws.close(1012); } catch { /* ignore */ }
+  }
+  setTimeout(() => process.exit(0), 1000);
+});
 
 http.listen(port, () => {
   console.log(`turboball server listening on :${port}${staticDir ? ` (serving ${staticDir})` : ''}`);

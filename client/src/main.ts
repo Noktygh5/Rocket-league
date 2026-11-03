@@ -12,5 +12,6 @@ new DevTools(app);
 window.addEventListener('keydown', (e) => { if (e.code === 'Space' && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) e.preventDefault(); });
 
 const room = new URLSearchParams(location.search).get('room');
-if (room && /^[A-Za-z]{5}$/.test(room)) online.autoJoin(room.toUpperCase());
+if (online.resume()) { /* refreshed mid-match: rejoin it */ }
+else if (room && /^[A-Za-z]{5}$/.test(room)) online.autoJoin(room.toUpperCase());
 else app.mainMenu();
