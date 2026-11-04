@@ -1,9 +1,9 @@
 // Lab: getting down from a wall. The boss starts on the floor beside a side wall facing it, is driven up the wall by script (real physics) until it is
-// above 700 uu on the wall, then plays on its own for 8 s with the ball on the floor in midfield and a parked opponent. Reports how long it takes to be back
-// on the floor (below 120 uu), how often it ever gets down, and how long it takes to touch the ball. Usage: npx tsx scripts/lab_wall.ts [n=20]
+// above 700 uu on the wall (or, with `ceiling`, onto the ceiling), then plays on its own for 8 s with the ball on the floor in midfield and a parked opponent. Reports how long it takes to be back
+// on the floor (below 120 uu), how often it ever gets down, and how long it takes to touch the ball. Usage: npx tsx scripts/lab_wall.ts [n=20] [wall|ceiling]
 import { GameSim, Phase, createBot, defaultConfig, placeCar } from '../src';
 import { Prng } from '../src/prng';
-const n = Number(process.argv[2] ?? 20);
+const n = Number(process.argv[2] ?? 20), where = process.argv[3] ?? 'wall';
 let tried = 0, down = 0, downSum = 0, touchN = 0, touchSum = 0, stuck = 0;
 for (let s = 0; s < n; s++) {
   const rng = new Prng(31 * s + 7);
@@ -15,9 +15,9 @@ for (let s = 0; s < n; s++) {
   sim.cars[0].pos.x = -side * 3000; sim.cars[0].pos.y = -7000;
   sim.ball.pos.x = -side * 1500 + (rng.next() - 0.5) * 2000; sim.ball.pos.y = (rng.next() - 0.5) * 3000; sim.ball.pos.z = 92; sim.ball.vel.x = 0; sim.ball.vel.y = 0; sim.ball.vel.z = 0;
   let up = false;
-  for (let t = 0; t < 600 && !up; t++) {                          // drive up the wall: full throttle and boost straight into it
+  for (let t = 0; t < 900 && !up; t++) {                          // drive up the wall (and over onto the ceiling): full throttle and boost
     const inp = sim.inputs[1]; inp.clear(); inp.throttle = 1; inp.boost = true; sim.step();
-    if (k.onGround && k.pos.z > 700 && Math.abs(k.surfaceNormal.z) < 0.4) up = true;
+    if (where === 'ceiling' ? (k.onGround && k.pos.z > 1800 && k.surfaceNormal.z < -0.6) : (k.onGround && k.pos.z > 700 && Math.abs(k.surfaceNormal.z) < 0.4)) up = true;
   }
   if (!up) continue;
   tried++;
