@@ -5,7 +5,7 @@ import { CamPose, CamTarget, ChaseCamera } from './camera';
 import { Hud } from './hud';
 import type { SpectatorRecorder } from './recorder';
 import { Frame, World } from './render/world';
-import { Quality, settings } from './settings';
+import { Quality, saveSettings, settings } from './settings';
 import { BallSnap, CarSnap, RenderSnap, makeSnap, nlerpQuat } from './snap';
 
 const REPLAY_HZ = 60;
@@ -99,6 +99,7 @@ export class GameView {
   constructor(canvas: HTMLCanvasElement, uiRoot: HTMLElement, readonly opts: ViewOptions) {
     this.world = new World(canvas, settings.quality);
     this.world.setCars(opts.teams);
+    this.world.setNeon(settings.neonCity);
     this.hud = new Hud(uiRoot);
     this.audio = new AudioEngine();
     this.audio.init();
@@ -127,12 +128,28 @@ export class GameView {
     this.ballArrow.className = 'ballarrow';
     this.ballArrow.innerHTML = '<svg viewBox="-30 -30 60 60"><circle r="13" class="bd"/><path d="M0-27 L9-16 L-9-16 Z" class="ar"/></svg>';
     this.hud.root.appendChild(this.ballArrow);
+    // visible switch for the neon city backdrop (also bound to B and in the pause menu / settings)
+    this.sceneryBtn = document.createElement('button');
+    this.sceneryBtn.className = 'scenery-btn';
+    this.sceneryBtn.addEventListener('click', (e) => { e.stopPropagation(); this.toggleScenery(); (e.currentTarget as HTMLElement).blur(); });
+    this.updateSceneryBtn();
+    this.hud.root.appendChild(this.sceneryBtn);
     window.addEventListener('resize', this.resizeHandler);
   }
+
+  private sceneryBtn: HTMLButtonElement;
+  private updateSceneryBtn(): void { this.sceneryBtn.textContent = `NEON CITY ${settings.neonCity ? 'ON' : 'OFF'} · B`; }
 
   toggleBallCam(): void {
     this.camera.ballCam = !this.camera.ballCam;
     this.hud.notice(this.camera.ballCam ? 'BALL CAM ON' : 'BALL CAM OFF');
+  }
+  toggleScenery(): void {
+    settings.neonCity = !settings.neonCity;
+    saveSettings();
+    this.world.setNeon(settings.neonCity);
+    this.hud.notice(settings.neonCity ? 'NEON CITY ON' : 'NEON CITY OFF');
+    this.updateSceneryBtn();
   }
   skipReplay(): void { this.replaySkipped = true; }
   get replaying(): boolean { return this.replayStarted && !this.replaySkipped; }
@@ -200,6 +217,7 @@ export class GameView {
   }
 
   present(s: RenderSnap, dt: number, ex: FrameExtras): void {
+    this.world.setScore(s.score[0], s.score[1]);
     // quality fallback
     this.fpsAcc += dt; this.fpsN++;
     if (this.fpsAcc >= 1) {

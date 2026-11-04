@@ -71,6 +71,7 @@ export class OfflineGame {
 
   private onAction(a: Action): void {
     if (a === 'ballcam') this.view.toggleBallCam();
+    if (a === 'scenery') this.view.toggleScenery();
     else if (a === 'skip') {
       this.view.skipReplay();
       if (this.sim.phase === 2) this.sim.phaseTimer = Math.min(this.sim.phaseTimer, 0.05);
@@ -84,6 +85,7 @@ export class OfflineGame {
     this.last = performance.now();
     if (this.rec) this.rec.paused = p;
     if (p) this.view.audio.silenceLoops();
+    this.view.audio.setPaused(p);
   }
 
   start(): void {

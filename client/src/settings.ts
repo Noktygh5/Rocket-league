@@ -4,7 +4,7 @@ export type Quality = 'low' | 'medium' | 'high';
 
 export const ACTIONS = [
   'throttle', 'reverse', 'left', 'right', 'jump', 'boost', 'powerslide',
-  'rollLeft', 'rollRight', 'ballcam', 'scoreboard', 'pause', 'skip',
+  'rollLeft', 'rollRight', 'ballcam', 'scoreboard', 'pause', 'skip', 'scenery',
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
@@ -12,7 +12,7 @@ export const ACTION_LABELS: Record<Action, string> = {
   throttle: 'Throttle / pitch down', reverse: 'Reverse / pitch up', left: 'Steer / yaw left',
   right: 'Steer / yaw right', jump: 'Jump / flip', boost: 'Boost', powerslide: 'Powerslide',
   rollLeft: 'Air roll left', rollRight: 'Air roll right', ballcam: 'Ball cam',
-  scoreboard: 'Scoreboard (hold)', pause: 'Pause / menu', skip: 'Skip replay',
+  scoreboard: 'Scoreboard (hold)', pause: 'Pause / menu', skip: 'Skip replay', scenery: 'Neon city background (toggle)',
 };
 
 export interface CameraSettings {
@@ -31,25 +31,28 @@ export interface Settings {
   name: string;
   /** Start matches with ball cam enabled. */
   ballCamDefault: boolean;
+  /** Night neon city backdrop (off = the original sunset stadium). */
+  neonCity: boolean;
 }
 
 export const DEFAULT_KEYS: Record<Action, string> = {
   throttle: 'KeyW', reverse: 'KeyS', left: 'KeyA', right: 'KeyD', jump: 'Space', boost: 'ShiftLeft',
   powerslide: 'KeyC', rollLeft: 'KeyQ', rollRight: 'KeyE', ballcam: 'KeyF', scoreboard: 'Tab',
-  pause: 'Escape', skip: 'Backspace',
+  pause: 'Escape', skip: 'Backspace', scenery: 'KeyB',
 };
 
 export function defaultSettings(): Settings {
   return {
     camera: { ...CAMERA_DEFAULTS },
     keys: { ...DEFAULT_KEYS },
-    quality: 'medium',
+    quality: 'high',
     volume: 0.6,
     showFps: false,
     showPing: true,
     speedUnit: 'kmh',
     name: 'Player',
     ballCamDefault: true,
+    neonCity: true,
   };
 }
 
@@ -72,6 +75,15 @@ function load(): Settings {
 }
 
 export const settings: Settings = load();
+
+// Graphics now default to High: move players whose saved setting is the old Medium default up once.
+try {
+  if (!localStorage.getItem('turboball.quality.high.v1')) {
+    localStorage.setItem('turboball.quality.high.v1', '1');
+    if (settings.quality === 'medium') settings.quality = 'high';
+    localStorage.setItem(KEY, JSON.stringify(settings));
+  }
+} catch { /* private mode etc. */ }
 
 export function saveSettings(): void {
   try {

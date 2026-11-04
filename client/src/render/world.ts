@@ -9,8 +9,10 @@ import { ArenaView, buildArena } from './arenaMesh';
 import { CarVisual, createCarVisual } from './carMesh';
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { skyTexture } from './environment';
+import { sunsetSkyTexture } from './sunset';
+import { cityFog, cityTime, neonEnvScene } from './neoncity';
 import { Particles } from './particles';
-import { createGradePass, setGradeSpeed } from './postfx';
+import { createGradePass, setGradeLook, setGradeSpeed } from './postfx';
 import { SkidMarks } from './skid';
 
 export interface QuatLike { x: number; y: number; z: number; w: number }
@@ -41,7 +43,7 @@ export interface Frame {
 
 const BLUE = new THREE.Color(0x3d8bff), ORANGE = new THREE.Color(0xff9a3d);
 
-function ballTextures(): { map: THREE.CanvasTexture; emissive: THREE.CanvasTexture } {
+function ballTextures(neon = false): { map: THREE.CanvasTexture; emissive: THREE.CanvasTexture } {
   const W = 2048, H = 1024;
   const mk = (draw: (g: CanvasRenderingContext2D) => void): THREE.CanvasTexture => {
     const c = document.createElement('canvas'); c.width = W; c.height = H;
@@ -61,6 +63,16 @@ function ballTextures(): { map: THREE.CanvasTexture; emissive: THREE.CanvasTextu
   const rnd = (): number => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
   const R = 118;
   const map = mk((g) => {
+    if (neon) {
+      // warm cream ball (#F2E8D5) with a muted tan hex pattern (#B8A98A)
+      g.fillStyle = '#F2E8D5'; g.fillRect(0, 0, W, H);
+      hexes(g, R, () => {
+        if (rnd() < 0.42) { const k = rnd() * 0.18; g.fillStyle = `rgba(184,169,138,${0.78 + k})`; g.fill(); }   // tan cells
+        else { g.fillStyle = `rgba(242,232,213,${0.55 + rnd() * 0.3})`; g.fill(); }
+        g.strokeStyle = '#B8A98A'; g.lineWidth = 9; g.stroke();
+      });
+      return;
+    }
     g.fillStyle = '#0a0b0e'; g.fillRect(0, 0, W, H);
     hexes(g, R, () => { g.fillStyle = `rgba(${14 + rnd() * 12},${15 + rnd() * 12},${19 + rnd() * 14},0.9)`; g.fill(); g.strokeStyle = 'rgba(2,3,5,0.95)'; g.lineWidth = 10; g.stroke(); });
     for (let i = 0; i < 1100; i++) { g.fillStyle = `rgba(200,210,225,${rnd() * 0.06})`; g.fillRect(rnd() * W, rnd() * H, 2 + rnd() * 50, 1); }
@@ -69,6 +81,7 @@ function ballTextures(): { map: THREE.CanvasTexture; emissive: THREE.CanvasTextu
   const emissive = mk((g) => {
     g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
     g.lineJoin = 'round';
+    if (neon) { g.strokeStyle = '#B8A98A'; g.lineWidth = 3; hexes(g, R, () => g.stroke()); return; }
     g.shadowColor = '#2fa8ff'; g.shadowBlur = 12;
     g.strokeStyle = '#2f9bff'; g.lineWidth = 4.5;
     hexes(g, R, () => g.stroke());
@@ -110,6 +123,11 @@ export class World {
   private lastSkid: Float32Array[] = [];
   private ring: THREE.Mesh;
   private tmpV = new THREE.Vector3();
+  private hemi!: THREE.HemisphereLight;
+  private ballMat!: THREE.MeshStandardMaterial;
+  private ballTex!: { dark: ReturnType<typeof ballTextures>; neon: ReturnType<typeof ballTextures> };
+  private envMaps!: { neon: THREE.Texture; sunset: THREE.Texture };
+  private neon = true;
 
   constructor(private canvas: HTMLCanvasElement, quality: Quality) {
     this.quality = quality;
@@ -117,13 +135,14 @@ export class World {
     this.renderer.setClearColor(0x05070b);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.15;
-    this.scene.fog = new THREE.FogExp2(0xd99a76, 0.000014);
+    this.scene.fog = new THREE.FogExp2(0x16262e, 0.000024);
     this.camera = new THREE.PerspectiveCamera(75, 16 / 9, 5, 60000);
     this.scene.add(this.particles.points);
     this.scene.add(this.skid.mesh);
 
-    this.scene.add(new THREE.HemisphereLight(0xffb98f, 0x2b3a1e, 1.15));
-    this.sun = new THREE.DirectionalLight(0xffc896, 3.1);
+    this.hemi = new THREE.HemisphereLight(0x8fa8ff, 0x2a1238, 1.0);
+    this.scene.add(this.hemi);
+    this.sun = new THREE.DirectionalLight(0xc4d4ff, 2.4);
     this.sun.position.set(900, 1500, 500);
     this.sun.castShadow = true;
     this.sun.shadow.camera.left = -1400; this.sun.shadow.camera.right = 1400;
@@ -133,7 +152,9 @@ export class World {
     this.scene.add(this.sun, this.sun.target);
 
     const ballTex = ballTextures();
+    this.ballTex = { dark: ballTex, neon: ballTextures(true) };
     const ballMat = new THREE.MeshStandardMaterial({ map: ballTex.map, color: 0xffffff, roughness: 0.28, metalness: 0.85, envMapIntensity: 1.0, emissive: 0xffffff, emissiveMap: ballTex.emissive, emissiveIntensity: 1.25 });
+    this.ballMat = ballMat;
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(BALL.radius, 48, 32), ballMat);
     this.ball.castShadow = true;
     this.scene.add(this.ball);
@@ -175,14 +196,18 @@ export class World {
     this.scene.add(this.ring);
     {
       const pm = new THREE.PMREMGenerator(this.renderer);
-      const envScene = new THREE.Scene();
-      envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), new THREE.MeshBasicMaterial({ map: skyTexture(), side: THREE.BackSide, toneMapped: false })));
-      this.scene.environment = pm.fromScene(envScene, 0.02).texture;
-      this.scene.environmentIntensity = 0.95;
+      const mk = (tex: THREE.Texture, neon: boolean): THREE.Texture => {
+        let envScene: THREE.Scene;
+        if (neon) envScene = neonEnvScene(tex);
+        else { envScene = new THREE.Scene(); envScene.add(new THREE.Mesh(new THREE.SphereGeometry(100, 32, 16), new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, toneMapped: false }))); }
+        return pm.fromScene(envScene, 0.02).texture;
+      };
+      this.envMaps = { neon: mk(skyTexture(), true), sunset: mk(sunsetSkyTexture(), false) };
       pm.dispose();
     }
     this.buildArena();
     this.applyQuality(quality);
+    this.setNeon(true);
     this.resize();
   }
 
@@ -207,6 +232,33 @@ export class World {
     }
   }
 
+  /** Switches between the night neon city and the original sunset stadium. */
+  setNeon(on: boolean): void {
+    this.neon = on;
+    const env = this.arena.group;
+    const neonG = env.getObjectByName('neonScenery'), sunsetG = env.getObjectByName('sunsetScenery');
+    if (neonG) neonG.visible = on;
+    if (sunsetG) sunsetG.visible = !on;
+    this.arena.setNeonLook(on);
+    this.scene.environment = on ? this.envMaps.neon : this.envMaps.sunset;
+    this.scene.environmentIntensity = on ? 1.25 : 0.95;
+    (this.scene.fog as THREE.FogExp2).color.set(on ? 0x16262e : 0xd99a76);
+    (this.scene.fog as THREE.FogExp2).density = on ? 0.000024 : 0.000014;
+    this.hemi.color.set(on ? 0x8fa8ff : 0xffb98f); this.hemi.groundColor.set(on ? 0x2a1238 : 0x2b3a1e); this.hemi.intensity = on ? 1.0 : 1.15;
+    this.sun.color.set(on ? 0xc4d4ff : 0xffc896); this.sun.intensity = on ? 1.7 : 3.1;
+    // the ball turns acid lime in the neon city so it pops against violet, blue and orange
+    const t = on ? this.ballTex.neon : this.ballTex.dark; // cream ball in the neon city, black-and-blue ball in the sunset stadium
+    this.ballMat.map = t.map; this.ballMat.emissiveMap = t.emissive;
+    if (on) { this.ballMat.emissiveIntensity = 0.12; this.ballMat.roughness = 0.42; this.ballMat.metalness = 0.08; this.ballMat.envMapIntensity = 0.5; }
+    else { this.ballMat.emissiveIntensity = 1.25; this.ballMat.roughness = 0.28; this.ballMat.metalness = 0.85; this.ballMat.envMapIntensity = 1.0; }
+    this.ballMat.needsUpdate = true;
+    if (this.bloom) { this.bloom.strength = on ? (this.quality === 'high' ? 0.6 : 0.45) : (this.quality === 'high' ? 0.55 : 0.4); this.bloom.radius = on ? 0.6 : 0.6; this.bloom.threshold = on ? 0.88 : 0.85; }
+    if (this.grade) setGradeLook(this.grade, on);
+  }
+
+  /** Live score for the big LED screens above the goals. */
+  setScore(blue: number, orange: number): void { this.arena.setScore(blue, orange); }
+
   applyQuality(q: Quality): void {
     this.quality = q;
     const dpr = Math.min(window.devicePixelRatio || 1, q === 'low' ? 1 : 1.5);
@@ -223,10 +275,11 @@ export class World {
     if (q !== 'low') {
       this.composer = new EffectComposer(this.renderer);
       this.composer.addPass(new RenderPass(this.scene, this.camera));
-      this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), q === 'high' ? 0.55 : 0.4, 0.6, 0.85);
+      this.bloom = new UnrealBloomPass(new THREE.Vector2(256, 256), this.neon ? (q === 'high' ? 0.6 : 0.45) : (q === 'high' ? 0.55 : 0.4), 0.6, this.neon ? 0.88 : 0.85);
       this.composer.addPass(this.bloom);
       this.composer.addPass(new OutputPass());
       this.grade = createGradePass();
+      setGradeLook(this.grade, this.neon);
       this.composer.addPass(this.grade);
     }
     this.resize();
@@ -247,8 +300,8 @@ export class World {
   }
   goalExplosion(team: number, x: number, y: number, z: number): void {
     const c = team === 0 ? BLUE : ORANGE;
-    this.particles.burst(x, z, -y, 260, 2400, c, 1.6, 90);
-    this.particles.burst(x, z, -y, 120, 1400, new THREE.Color(0xffffff), 1.0, 60);
+    this.particles.burst(x, z, -y, 260, 2400, c, 1.6, 40);
+    this.particles.burst(x, z, -y, 120, 1400, c, 1.0, 26);
     this.particles.ring(x, z, -y, 90, 2600, c, 1.1, 80);
   }
   demoExplosion(team: number, x: number, y: number, z: number): void {
@@ -281,6 +334,8 @@ export class World {
 
   render(f: Frame, dt: number): void {
     this.clock += dt;
+    cityTime.value = this.clock;
+    cityFog.forEach((t, i) => { t.offset.x = (this.clock * (0.004 + i * 0.0015)) % 1; t.offset.y = (this.clock * 0.002 * (i + 1)) % 1; });
     // ball
     this.ball.position.set(f.ball.x, f.ball.z, -f.ball.y);
     setQuat(this.ball, f.ball.q);

@@ -219,7 +219,8 @@ export class App {
       select('Speed unit', [['kmh', 'km/h'], ['uu', 'uu/s']], settings.speedUnit, (v) => { settings.speedUnit = v as 'kmh' | 'uu'; saveSettings(); }),
       check('Show FPS', () => settings.showFps, (v) => (settings.showFps = v)),
       check('Show ping', () => settings.showPing, (v) => (settings.showPing = v)),
-      check('Ball cam on by default', () => settings.ballCamDefault, (v) => (settings.ballCamDefault = v)));
+      check('Ball cam on by default', () => settings.ballCamDefault, (v) => (settings.ballCamDefault = v)),
+      check('Neon city background', () => settings.neonCity, (v) => { settings.neonCity = v; this.game?.gameView.world.setNeon(v); }));
     const page = this.page(h('h2', null, 'SETTINGS'), gen, camBox, keysBox, bigBtn('BACK', back, true));
     if (this.game) page.style.background = 'rgba(6,9,15,0.92)';
     this.screen(page);
@@ -261,9 +262,12 @@ export class App {
     if (!g) return;
     if (this.overlay) { this.resume(); return; }
     g.setPaused(true);
+    const sceneryLabel = (): string => `NEON CITY BACKGROUND: ${settings.neonCity ? 'ON' : 'OFF'}`;
+    const sceneryBtn = bigBtn(sceneryLabel(), () => { g.gameView.toggleScenery(); sceneryBtn.textContent = sceneryLabel(); });
     this.showOverlay(h('div', { class: 'overlay' }, h('div', { class: 'box' },
       h('h2', null, 'PAUSED'),
       bigBtn('RESUME', () => this.resume()),
+      sceneryBtn,
       bigBtn('SETTINGS', () => { this.showOverlay(null); this.settingsScreen(() => { this.screen(null); this.pause(); }); }),
       bigBtn('QUIT TO MENU', () => { this.showOverlay(null); this.mainMenu(); }))));
   }
