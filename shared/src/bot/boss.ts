@@ -21,7 +21,7 @@ import { BallPath, predictBall } from './predict';
  */
 
 /** Bumped with every behaviour change; the match recorder writes it into meta.json so a recording says which boss played it. */
-export const BOSS_VERSION = 'r16 carry contest, goal-zone pads, boost reserve below 25, shot-contact times (deep-chase rule removed: too passive)';
+export const BOSS_VERSION = 'r17 carry contest, goal-zone pads, boost reserve below 25, shot-contact times, wall exit after 1 s';
 
 const DT = PHYSICS.dt;
 const L = ARENA.halfLength;
@@ -35,6 +35,7 @@ const BUDGET = 3; // rollouts per tick
 const STRIKE_MIN = -600; // a play scoring below this is not worth leaving position for
 const TIME_COST = 140; // score lost per second until the touch: earlier touches win possession
 const AERIAL_BONUS = 260; // a viable aerial is preferred to waiting for the ball to drop (earlier, harder to defend)
+const WALL_STAY = 1.0; // seconds the boss may stay on a wall before it jumps off (leaving at once made it lose a chased ball; 1.5 s was too slow)
 const PAD_BOOST = 70; // detour for a pad on the way to a play below this boost
 const PAD_PLAN = 80; // with nothing to strike, go for a pad below this boost
 const PAD_SLACK = 2.0; // ... when there are at least this many seconds before the touch
@@ -278,6 +279,7 @@ export class BossBot {
   private fakeT = 0;
   private fakeCooldown = 0;
   private demoT = 0;
+  private wallTime = 0;
   private rng: Prng;
   private aimBias = new Map<number, number>();
   private demoCooldown = 0;
@@ -371,7 +373,22 @@ export class BossBot {
       out.clear(); out.throttle = -1; out.steer = (this.tickCount >> 4) % 2 ? 1 : -1;
       return;
     }
+    if (this.wallExit(car, out)) return;
     execute(car, sim.ball, this.plan, this.ex, out);
+  }
+
+  /**
+   * On a wall or the ceiling the planar steering below sees a target "along the floor" and drives sideways forever (recorded games: the boss rode its own
+   * side wall, back wall and the ceiling for 5-12 s while the human scored). The boss makes no wall plays, so get down: jump off.
+   */
+  private wallExit(car: CarState, out: CarInput): boolean {
+    const n = car.surfaceNormal;
+    if (!car.onGround || car.pos.z < 260 || n.z > 0.7) { this.wallTime = 0; return false; }   // on the floor or the foot of a ramp
+    this.wallTime += DT;
+    if (this.wallTime < WALL_STAY && n.z > -0.3) return false;      // give a short ride up the wall a moment (a ball chased up the side wall); the ceiling is never wanted
+    out.clear();
+    out.jump = true;                                                // a jump pushes us off the wall or the ceiling; recover() then lands us wheels-down on the floor
+    return true;
   }
 
   /**

@@ -117,4 +117,21 @@ describe('ultrahard boss', () => {
     for (let i = 0; i < 90; i++) { boss.think(); sim.step(); const j = sim.inputs[0].jump; if (j && !prev && car.pos.z < 60) presses++; prev = j; }
     expect(presses).toBe(0);
   }, 30_000);
+
+  it('gets down from a wall instead of riding it for seconds (recorded games: it rode its own back wall and the ceiling while the human scored)', () => {
+    const sim = new GameSim({ ...defaultConfig([{ team: 0, name: 'human' }, { team: 1, name: 'boss' }], 300), matchLength: 60, skipReplay: true });
+    const boss = createBot('ultrahard', sim, 1, 300);
+    while (sim.phase !== Phase.Playing) sim.step();
+    const car = sim.cars[1];
+    placeCar(car, 5000, 0, 0); car.vel.x = 1800; car.boost = 100;
+    sim.cars[0].pos.x = -3000; sim.cars[0].pos.y = -7000;
+    sim.ball.pos.x = -1500; sim.ball.pos.y = 500; sim.ball.pos.z = 92; sim.ball.vel.x = 0; sim.ball.vel.y = 0; sim.ball.vel.z = 0;
+    let up = false;
+    for (let t = 0; t < 600 && !up; t++) { const i = sim.inputs[1]; i.clear(); i.throttle = 1; i.boost = true; sim.step(); if (car.onGround && car.pos.z > 700 && Math.abs(car.surfaceNormal.z) < 0.4) up = true; }
+    expect(up).toBe(true);                                         // the script really put the car up the wall
+    let down = -1;
+    for (let t = 0; t < 120 * 6 && down < 0; t++) { boss.think(); sim.step(); if (car.onGround && car.pos.z < 120) down = t / 120; }
+    expect(down).toBeGreaterThanOrEqual(0);
+    expect(down).toBeLessThan(5);                                   // before the fix it was still up there after 8 s in 12 of 20 tries
+  }, 30_000);
 });
