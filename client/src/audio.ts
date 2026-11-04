@@ -49,6 +49,8 @@ export class AudioEngine {
   }
 
   setVolume(v: number): void { if (this.ctx) this.master.gain.value = v; }
+  /** Pausing stops every sound (engine, boost, crowd, effects); resuming brings them back. */
+  setPaused(p: boolean): void { if (this.ctx) void (p ? this.ctx.suspend() : this.ctx.resume()); }
 
   /** Continuous sounds. `speed` in uu/s. */
   update(speed: number, boosting: boolean, throttle: number, inAir: boolean): void {

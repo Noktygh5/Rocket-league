@@ -67,7 +67,11 @@ export class ChaseCamera {
     const bd = flatten(tmpB, tmpB, this.up);
     const ballOk = vec3.lengthSq(bd) > 400;
 
-    const want = this.ballCam && ballOk && !this.rearView ? 1 : 0;
+    // ball cam only turns toward the ball while it is roughly in front of the car; with the ball behind you the camera
+    // stays behind the car (never swings round to look at the car's nose), so the game stays playable
+    const align = vec3.dot(bd, f);
+    const inFront = Math.max(0, Math.min(1, (align + 0.15) / 0.55));
+    const want = this.ballCam && ballOk && !this.rearView ? inFront * inFront * (3 - 2 * inFront) : 0;
     const tr = 0.6 + s.transitionSpeed * 2.4;
     this.blend += Math.sign(want - this.blend) * Math.min(Math.abs(want - this.blend), tr * dt);
 
@@ -169,7 +173,7 @@ function flatten(out: Vec3, v: Vec3, n: Vec3): Vec3 {
 /** The camera horizon never tilts more than this far from upright, even on walls and ceilings. */
 /** Keep the camera this far inside the wire cage so the net never fills the screen. */
 const CAGE_MARGIN = 120;
-const MAX_TILT = (65 * Math.PI) / 180;
+const MAX_TILT = (30 * Math.PI) / 180;
 
 /** Spherical interpolation between unit vectors; `hint` supplies a rotation axis when they are opposite. */
 function slerpUnit(out: Vec3, a: Vec3, b: Vec3, t: number, hint: Vec3): Vec3 {

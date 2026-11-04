@@ -11,26 +11,28 @@ canvas#game { position: fixed; inset: 0; width: 100%; height: 100%; display: blo
 .hud { position: fixed; inset: 0; pointer-events: none !important; }
 .hud * { pointer-events: none; }
 
-/* scoreboard */
-.scorebar { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; align-items: stretch; filter: drop-shadow(0 4px 10px rgba(0,0,0,.5)); }
-.sb { width: 92px; display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: 800; background: var(--panel); }
-.sb.blue { clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 0 100%); border-bottom: 4px solid var(--blue); background: linear-gradient(90deg, rgba(30,109,255,.55), var(--panel)); padding-right: 6px; }
-.sb.orange { clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%); border-bottom: 4px solid var(--orange); background: linear-gradient(270deg, rgba(255,122,20,.55), var(--panel)); padding-left: 6px; }
-.clock { min-width: 120px; padding: 6px 14px; font-size: 34px; font-weight: 700; text-align: center; background: var(--panel); font-variant-numeric: tabular-nums; letter-spacing: 1px; }
-.clock.low { color: #ff4d4d; animation: blink 1s steps(2) infinite; }
-.clock.ot { color: #ffd34d; }
+/* scoreboard: dark timer plate with a white top edge between two tilted glowing score tiles (like the real game's) */
+:root { --techno: 'Bahnschrift', 'DIN Alternate', 'DIN Condensed', 'Avenir Next Condensed', 'Rajdhani', 'Arial Narrow', 'Segoe UI', sans-serif; }
+.scorebar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; filter: drop-shadow(0 4px 10px rgba(0,0,0,.5)); }
+.sb { position: relative; width: 62px; height: 62px; display: flex; align-items: center; justify-content: center; font-family: var(--techno); font-size: 34px; font-weight: 600; color: #fff; text-shadow: 0 0 10px rgba(255,255,255,.7); border-radius: 6px; z-index: 0; }
+.sb.blue { order: 1; background: linear-gradient(160deg, #3b8bff, #1650d8); box-shadow: 0 0 22px rgba(60,130,255,.85), inset 0 0 0 3px rgba(255,255,255,.55); transform: perspective(300px) rotateY(24deg); margin-right: -6px; }
+.sb.orange { order: 3; background: linear-gradient(200deg, #ff9a3a, #e2600e); box-shadow: 0 0 22px rgba(255,140,40,.85), inset 0 0 0 3px rgba(255,255,255,.55); transform: perspective(300px) rotateY(-24deg); margin-left: -6px; }
+.clock { order: 2; position: relative; z-index: 1; min-width: 190px; padding: 6px 18px 4px; font-family: var(--techno); font-size: 38px; font-weight: 400; text-align: center; letter-spacing: 4px; font-variant-numeric: tabular-nums; color: rgba(255,255,255,.1); -webkit-text-stroke: 1.4px #fff; text-shadow: 0 0 9px rgba(255,255,255,.55); background: linear-gradient(180deg, #f2f6fb 0, #f2f6fb 4px, rgba(6,9,16,.95) 4px, rgba(14,18,30,.9) 100%); clip-path: polygon(0 0, 100% 0, calc(100% - 14px) 100%, 14px 100%); }
+.clock.low { -webkit-text-stroke-color: #ff6a6a; text-shadow: 0 0 12px rgba(255,70,70,.8); animation: blink 1s steps(2) infinite; }
+.clock.ot { -webkit-text-stroke-color: #ffd34d; }
 @keyframes blink { 50% { opacity: .55; } }
 
-/* boost dial */
-.boost { position: absolute; right: 26px; bottom: 22px; width: 150px; height: 150px; }
-.boost svg { width: 100%; height: 100%; transform: rotate(-90deg); }
-.boost .track { fill: rgba(6,10,18,.65); stroke: rgba(255,255,255,.12); stroke-width: 9; }
-.boost .fill { fill: none; stroke: var(--blue2); stroke-width: 9; stroke-linecap: round; transition: stroke .15s; filter: drop-shadow(0 0 6px rgba(90,160,255,.8)); }
-.boost .fill.team1 { stroke: var(--orange2); filter: drop-shadow(0 0 6px rgba(255,160,60,.8)); }
-.boost .fill.low { stroke: #ff4545; }
-.boost .fill.full { stroke: #fff; }
-.boost .num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 50px; font-weight: 800; text-shadow: 0 2px 8px #000; }
-.boost .spd { position: absolute; left: 0; right: 0; bottom: -4px; text-align: center; font-size: 14px; opacity: .85; text-shadow: 0 1px 4px #000; }
+/* boost gauge: dark disc, 24-segment arc from 7 o'clock, outlined number (team coloured) */
+.boost { position: absolute; right: 26px; bottom: 24px; width: 150px; height: 150px; --seg: #3fb7ff; --segoff: rgba(225,235,255,.30); --glow: rgba(70,170,255,.85); }
+.boost.team1 { --seg: #ffab30; --glow: rgba(255,160,40,.85); }
+.boost.low { --seg: #ff4a4a; --glow: rgba(255,70,70,.85); }
+.boost .disc { position: absolute; inset: 14px; border-radius: 50%; background: radial-gradient(circle at 50% 45%, rgba(10,14,24,.88) 0%, rgba(4,6,12,.72) 68%, rgba(4,6,12,.5) 100%); border: 2px solid rgba(255,255,255,.1); box-shadow: 0 0 24px rgba(0,0,0,.6) inset; }
+.boost svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.boost .tick { stroke: var(--segoff); stroke-width: 5.2; stroke-linecap: butt; }
+.boost .tick.on { stroke: var(--seg); filter: drop-shadow(0 0 4px var(--glow)); }
+.boost.full .tick.on { stroke: #fff; }
+.boost .num { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-family: var(--techno); font-size: 54px; font-weight: 600; letter-spacing: 1px; color: transparent; -webkit-text-stroke: 2px var(--seg); text-shadow: 0 0 14px var(--glow); }
+.boost .spd { position: absolute; left: 0; right: 0; bottom: -2px; text-align: center; font-family: var(--techno); font-size: 13px; letter-spacing: 1px; opacity: .8; text-shadow: 0 1px 4px #000; }
 
 .fps { position: absolute; top: 10px; left: 12px; font-size: 13px; opacity: .8; display: none; }
 .feed { position: absolute; top: 14px; right: 16px; display: flex; flex-direction: column; gap: 5px; align-items: flex-end; }
@@ -156,3 +158,7 @@ table.res tr.mvp td:first-child::after { content: ' ★ MVP'; color: #ffd34d; fo
 .ballarrow svg { width: 100%; height: 100%; }
 .ballarrow .bd { fill: rgba(10,14,22,.85); stroke: #8fd0ff; stroke-width: 3; }
 .ballarrow .ar { fill: #8fd0ff; }
+
+.scenery-btn { position: absolute; top: 14px; right: 16px; padding: 6px 11px; font: 600 11px/1 var(--techno); letter-spacing: .14em; color: #dff3ff; background: rgba(6,9,16,.78); border: 1px solid rgba(255,255,255,.28); border-radius: 2px; cursor: pointer; }
+.hud .scenery-btn { pointer-events: auto; }
+.scenery-btn:hover { background: rgba(30,60,110,.85); }

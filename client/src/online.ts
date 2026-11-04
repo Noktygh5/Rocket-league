@@ -71,6 +71,7 @@ export class OnlineGame {
 
   private onAction(a: Action): void {
     if (a === 'ballcam') this.view.toggleBallCam();
+    if (a === 'scenery') this.view.toggleScenery();
     else if (a === 'skip') this.view.skipReplay();
     else if (a === 'pause') this.onPauseRequest?.();
   }
@@ -79,6 +80,7 @@ export class OnlineGame {
     // online matches never pause; the overlay only lets the player open settings or leave
     this.input.enabled = !p;
     this.input.releaseAll();
+    this.view.audio.setPaused(p);
   }
 
   start(): void {

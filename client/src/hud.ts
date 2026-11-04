@@ -22,8 +22,8 @@ export class Hud {
   private banner: HTMLElement;
   private countdown: HTMLElement;
   private fpsEl: HTMLElement;
-  private ring: SVGCircleElement;
-  private ringLen = 2 * Math.PI * 52;
+  private ticks: SVGElement[] = [];
+  private lit = -1;
   private shown = 0;
 
   constructor(parent: HTMLElement) {
@@ -44,7 +44,7 @@ export class Hud {
         <div class="warn" id="warn">Connection unstable</div>
         <div class="replay-ui" id="replayui"><div class="bar top"></div><div class="bar bottom"></div><div class="tag">REPLAY</div><div class="hint">Press Backspace to skip</div></div>
         <div class="boost">
-          <svg viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="fill" id="ring" cx="60" cy="60" r="52"/></svg>
+          <div class="disc"></div><svg viewBox="0 0 120 120" id="ticks"></svg>
           <div class="num" id="boostnum">33</div>
           <div class="spd" id="speed">0 km/h</div>
         </div>
@@ -55,8 +55,17 @@ export class Hud {
     this.banner = this.q('#banner');
     this.countdown = this.q('#countdown');
     this.fpsEl = this.q('#fps');
-    this.ring = this.root.querySelector('#ring') as unknown as SVGCircleElement;
-    this.ring.style.strokeDasharray = String(this.ringLen);
+    // segmented boost arc: 24 ticks from about 7 o'clock, clockwise over the top, like the real gauge
+    const svg = this.root.querySelector('#ticks') as SVGElement;
+    const N = 24, start = 212, span = 238;
+    for (let i = 0; i < N; i++) {
+      const a = ((start + (span * i) / (N - 1)) * Math.PI) / 180;
+      const x0 = 60 + Math.sin(a) * 42, y0 = 60 - Math.cos(a) * 42, x1 = 60 + Math.sin(a) * 54, y1 = 60 - Math.cos(a) * 54;
+      const t = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      t.setAttribute('x1', x0.toFixed(2)); t.setAttribute('y1', y0.toFixed(2)); t.setAttribute('x2', x1.toFixed(2)); t.setAttribute('y2', y1.toFixed(2));
+      t.setAttribute('class', 'tick');
+      svg.appendChild(t); this.ticks.push(t);
+    }
   }
 
   private set(key: string, node: HTMLElement, text: string): void {
@@ -77,10 +86,12 @@ export class Hud {
       const b = Math.round(me.boost);
       this.set('boost', this.q('#boostnum'), String(b));
       const f = Math.max(0, Math.min(1, me.boost / CAR.boost.max));
-      this.ring.style.strokeDashoffset = String(this.ringLen * (1 - f));
-      this.ring.classList.toggle('low', b < 20);
-      this.ring.classList.toggle('team1', me.team === 1);
-      this.ring.classList.toggle('full', b >= 99);
+      const n = Math.round(f * this.ticks.length);
+      if (n !== this.lit) { this.lit = n; this.ticks.forEach((t, i) => t.classList.toggle('on', i < n)); }
+      const box = this.q('.boost');
+      box.classList.toggle('low', b < 20);
+      box.classList.toggle('team1', me.team === 1);
+      box.classList.toggle('full', b >= 99);
       const sp = Math.hypot(me.vx, me.vy, me.vz);
       this.set('speed', this.q('#speed'), settings.speedUnit === 'kmh' ? `${Math.round(sp * 0.036)} km/h` : `${Math.round(sp)} uu/s`);
       this.q('.vignette').classList.toggle('on', me.supersonic);

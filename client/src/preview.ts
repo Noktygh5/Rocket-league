@@ -1,0 +1,32 @@
+// Dev-only: renders one car (or the ball) from a chosen angle. ?team=0|1&az=deg&el=deg&dist=uu&ball=1
+import * as THREE from 'three';
+import { createCarVisual } from './render/carMesh';
+import { skyTexture } from './render/environment';
+import { neonEnvScene } from './render/neoncity';
+
+const q = new URLSearchParams(location.search);
+const canvas = document.getElementById('c') as HTMLCanvasElement;
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(1.5); renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 1.15;
+renderer.shadowMap.enabled = true;
+const scene = new THREE.Scene();
+const pm = new THREE.PMREMGenerator(renderer);
+const env = neonEnvScene(skyTexture());
+scene.environment = pm.fromScene(env, 0.02).texture; scene.environmentIntensity = 0.95;
+scene.background = new THREE.Color(0x3a4a2a);
+scene.add(new THREE.HemisphereLight(0xffb98f, 0x2b3a1e, 1.15));
+const sun = new THREE.DirectionalLight(0xffc896, 3.1); sun.position.set(400, 900, 300); sun.castShadow = true;
+sun.shadow.camera.left = -300; sun.shadow.camera.right = 300; sun.shadow.camera.top = 300; sun.shadow.camera.bottom = -300; sun.shadow.camera.far = 3000;
+scene.add(sun);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(4000, 4000), new THREE.MeshStandardMaterial({ color: 0x2a3b1f, roughness: 0.95 }));
+floor.rotation.x = -Math.PI / 2; floor.position.y = -37.8; floor.receiveShadow = true; scene.add(floor);
+const car = createCarVisual((Number(q.get('team') ?? 0) as 0 | 1), 'high');
+scene.add(car.root);
+const az = (Number(q.get('az') ?? 35) * Math.PI) / 180, el = (Number(q.get('el') ?? 15) * Math.PI) / 180, d = Number(q.get('dist') ?? 330);
+const cam = new THREE.PerspectiveCamera(Number(q.get('fov') ?? 40), innerWidth / innerHeight, 1, 20000);
+cam.position.set(Math.cos(az) * Math.cos(el) * d, Math.sin(el) * d, Math.sin(az) * Math.cos(el) * d);
+cam.lookAt(0, -5, 0);
+(window as any).done = false;
+let n = 0;
+renderer.setAnimationLoop(() => { car.update(0.016, false, false, 100, 0, 0); renderer.render(scene, cam); if (++n > 6) (window as any).done = true; });
