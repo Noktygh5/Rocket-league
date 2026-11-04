@@ -3,6 +3,7 @@ import { escapeHtml } from './hud';
 import { serverUrl } from './net/transport';
 import { OfflineGame } from './offline';
 import { canRecordHere } from './recorder';
+import { WinSink, canRecordWins, getSaveFolder } from './winSaver';
 import { ACTIONS, ACTION_LABELS, Action, Quality, keyLabel, resetCamera, saveSettings, settings } from './settings';
 import type { RenderSnap } from './snap';
 
@@ -120,14 +121,20 @@ export class App {
   botSetup(): void {
     let difficulty: BotLevel = this.lastBot.difficulty;
     let length = this.lastBot.length;
-    let record = this.lastBot.record && canRecordHere();
+    let record = this.lastBot.record && (canRecordHere() || canRecordWins());
     const diffRow = h('div', { class: 'row' });
     const lenRow = h('div', { class: 'row' });
     const recRow = h('div', { class: 'row' });
+    const recSetting = h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Record'), recRow);
     const render = (): void => {
+      // on localhost every match is recorded for analysis; anywhere else only Ultrahard wins are, to the player's own computer
+      const local = canRecordHere();
+      recSetting.style.display = local || (canRecordWins() && difficulty === 'ultrahard') ? '' : 'none';
       recRow.replaceChildren(
-        h('button', { class: 'small' + (record ? ' on' : ''), onClick: () => { record = !record; render(); } }, record ? '● RECORDING ON' : 'RECORD MATCH'),
-        h('span', { class: 'hint', style: 'margin:0' }, record ? 'Fixed overhead camera + bot telemetry, saved to the recordings folder.' : 'Off'));
+        h('button', { class: 'small' + (record ? ' on' : ''), onClick: () => { record = !record; render(); } }, record ? '● RECORDING ON' : local ? 'RECORD MATCH' : 'RECORD MY WINS'),
+        h('span', { class: 'hint', style: 'margin:0' }, !record ? 'Off'
+          : local ? 'Fixed overhead camera + bot telemetry, saved to the recordings folder.'
+            : 'Overhead video of every win, saved to a folder you pick (it opens in Documents). Losses are not saved.'));
       diffRow.replaceChildren(...(['easy', 'medium', 'hard', 'ultrahard'] as BotLevel[]).map((d) =>
         h('button', { class: 'small' + (d === difficulty ? ' on' : '') + (d === 'ultrahard' ? ' boss' : ''), onClick: () => { difficulty = d; render(); } }, d === 'ultrahard' ? 'ULTRAHARD BOSS' : d.toUpperCase())));
       lenRow.replaceChildren(...[180, 300, 600].map((l) =>
@@ -139,7 +146,7 @@ export class App {
       h('div', { class: 'panel' },
         h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Difficulty'), diffRow),
         h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Match length'), lenRow),
-        canRecordHere() ? h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Record (local only)'), recRow) : null,
+        recSetting,
         h('div', { class: 'setting' }, h('span', { class: 'lbl' }, 'Your name'),
           h('input', { type: 'text', maxlength: 14, value: settings.name, onInput: (e: Event) => { settings.name = (e.target as HTMLInputElement).value.trim() || 'Player'; saveSettings(); } }))),
       bigBtn('START MATCH', () => this.startOffline(difficulty, length, record)),
@@ -221,11 +228,24 @@ export class App {
   // ------------------------------------------------------------ matches
   startOffline(difficulty: BotLevel, length: number, record = this.lastBot.record): void {
     this.lastBot = { difficulty, length, record };
+    // wins-only recording (not localhost): ask for the save folder now, while the click that started the match is still fresh
+    const wins = record && !canRecordHere() && difficulty === 'ultrahard' && canRecordWins();
+    const folder = wins ? getSaveFolder() : Promise.resolve(null);
     this.screen(h('div', { class: 'loading' }, 'LOADING…'));
-    requestAnimationFrame(() => setTimeout(() => {
+    void folder.then((dir) => requestAnimationFrame(() => setTimeout(() => {
       this.stopGame();
-      const game = new OfflineGame(this.canvas, this.ui, { difficulty, matchLength: length, name: settings.name, record: record && canRecordHere() });
+      let winSink: WinSink | undefined;
+      if (wins) {
+        const d = new Date(), p2 = (n: number): string => String(n).padStart(2, '0');
+        winSink = new WinSink(dir, `Turboball_vs_Boss_${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}_${p2(d.getHours())}-${p2(d.getMinutes())}-${p2(d.getSeconds())}`);
+      }
+      const game = new OfflineGame(this.canvas, this.ui, { difficulty, matchLength: length, name: settings.name, record: record && canRecordHere(), winSink });
       this.game = game;
+      game.onWinRecording = (result, name) => {
+        if (result === 'folder') this.toast(`Win saved to your recordings folder: ${name}`, 8000);
+        else if (result === 'download') this.toast(`Win saved to your Downloads folder: ${name}`, 8000);
+        else if (result === 'error') this.toast('Could not save the win recording', 6000);
+      };
       game.onRecordingSaved = (id) => this.toast(`Recording saved: recordings/${id}`, 8000);
       game.onRecordingError = (msg) => this.toast(`Not recording: ${msg}`, 6000);
       this.stopActive = () => game.stop();
@@ -233,7 +253,7 @@ export class App {
       game.onEnd = (snap, names) => this.matchResult(snap, names, true);
       this.screen(null);
       game.start();
-    }, 30));
+    }, 30)));
   }
 
   private pause(): void {

@@ -2,12 +2,14 @@ import * as THREE from 'three';
 import { ARENA, BOSS_VERSION, BotAgent, GameSim, PHYSICS, SimEvent } from '@turboball/shared';
 import type { World } from './render/world';
 import type { RenderSnap } from './snap';
+import type { SaveResult, WinSink } from './winSaver';
 
 // Vs-Bot match recorder (localhost only). Renders the match a second time from a fixed overhead
 // camera, so you can watch it without your own point of view, and logs per-tick telemetry for
 // analysing the bot. Both stream to the local server, which writes recordings/<id>/.
 
 const W = 1920, H = 1080, FPS = 30, BITRATE = 6_000_000;
+const WIN_BITRATE = 3_500_000; // wins-only recordings are not analysed, so they can be smaller
 const LOG_EVERY = 4; // the sim runs at 120 Hz, telemetry is logged at 30 Hz
 const FLUSH_LINES = 150;
 const VIDEO_TYPES = ['video/mp4;codecs=avc1.640028', 'video/mp4;codecs=avc1', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
@@ -42,6 +44,8 @@ export interface RecorderInfo {
   names: string[];
   teams: number[];
   botIndex: number;
+  /** Wins-only mode (any host): the video goes to the player's computer and is dropped unless they win. No telemetry. */
+  sink?: WinSink;
 }
 
 export class SpectatorRecorder {
@@ -103,10 +107,15 @@ export class SpectatorRecorder {
     const type = VIDEO_TYPES.find((t) => MediaRecorder.isTypeSupported(t));
     if (!type) throw new Error('This browser cannot record video');
     this.ext = type.startsWith('video/mp4') ? 'mp4' : 'webm';
-    await this.send('meta.json', 'PUT', JSON.stringify(this.meta(null))); // also verifies the server accepts recordings
+    const sink = this.info.sink;
+    if (sink) await sink.open(this.ext, type);
+    else await this.send('meta.json', 'PUT', JSON.stringify(this.meta(null))); // also verifies the server accepts recordings
     const stream = this.canvas.captureStream(FPS);
-    this.mr = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: BITRATE });
-    this.mr.ondataavailable = (e) => { if (e.data.size > 0) this.enqueue(`video.${this.ext}`, 'POST', e.data); };
+    this.mr = new MediaRecorder(stream, { mimeType: type, videoBitsPerSecond: sink ? WIN_BITRATE : BITRATE });
+    this.mr.ondataavailable = (e) => {
+      if (e.data.size === 0) return;
+      if (sink) sink.write(e.data); else this.enqueue(`video.${this.ext}`, 'POST', e.data);
+    };
     this.mr.start(1000);
     if (this.held) this.mr.pause(); // paused or in a replay before the recorder was ready
     this.startedAt = Date.now();
@@ -125,7 +134,7 @@ export class SpectatorRecorder {
       } catch { /* recorder already stopped */ }
     }
     if (hold) this.holdWhy = this._paused ? 'pause' : 'replay';
-    if (!this.failed) this.lines.push(JSON.stringify({ k: 'v', tick: this.tickN, video: hold ? 'hold' : 'resume', why: this.holdWhy }));
+    if (!this.failed && !this.info.sink) this.lines.push(JSON.stringify({ k: 'v', tick: this.tickN, video: hold ? 'hold' : 'resume', why: this.holdWhy }));
   }
 
   private meta(end: { score: [number, number]; stats: unknown } | null): object {
@@ -178,6 +187,7 @@ export class SpectatorRecorder {
   onTick(sim: GameSim, events: SimEvent[], firstNew: number): void {
     if (this.failed) return;
     this.tickN = sim.tick;
+    if (this.info.sink) return;
     for (let i = firstNew; i < events.length; i++) {
       const e = events[i];
       this.lines.push(JSON.stringify({ k: 'e', tick: sim.tick, type: e.type, a: e.a, b: e.b, v: r1(e.v) }));
@@ -284,9 +294,16 @@ export class SpectatorRecorder {
       if (mr && mr.state !== 'inactive') {
         await new Promise<void>((res) => { mr.addEventListener('stop', () => res(), { once: true }); mr.stop(); });
       }
-      this.flushTelemetry();
-      await this.chain;
-      if (!this.failed) {
+      const sink = this.info.sink;
+      if (sink) {
+        // only a finished match that the player won is kept; quitting early or losing deletes the video
+        const won = !this.failed && s !== null && s.phase === 3 && s.winner === 0;
+        this.saved = await sink.finish(won);
+      } else {
+        this.flushTelemetry();
+        await this.chain;
+      }
+      if (!this.failed && !sink) {
         try { await this.send('meta.json', 'PUT', JSON.stringify(this.meta({ score: s ? [s.score[0], s.score[1]] : [0, 0], stats: s ? s.stats : null }))); } catch { /* the video is already saved */ }
       }
       this.renderer.dispose();
@@ -295,6 +312,9 @@ export class SpectatorRecorder {
     })();
     return this.stopped;
   }
+
+  /** Wins-only mode: where the video ended up, once stop() has resolved. */
+  saved: { result: SaveResult; name: string } | null = null;
 
   get hasFailed(): boolean { return this.failed; }
 }

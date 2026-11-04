@@ -1,6 +1,7 @@
 import { BotAgent, BotLevel, CarInput, GameSim, PHYSICS, FixedStepper, SimEvent, createBot, defaultConfig } from '@turboball/shared';
 import { InputSampler } from './input';
 import { SpectatorRecorder } from './recorder';
+import type { SaveResult, WinSink } from './winSaver';
 import { RenderSnap, makeSnap, nlerpQuat } from './snap';
 import { Action, settings } from './settings';
 import { GameView } from './view';
@@ -11,6 +12,8 @@ export interface OfflineOptions {
   name: string;
   /** Record a fixed-camera video and bot telemetry to recordings/ (localhost only). */
   record?: boolean;
+  /** Record the match for the player and keep the video only if they win (works on any host). */
+  winSink?: WinSink;
 }
 
 /** Offline 1v1 against a bot: the sim, bot and renderer all run in the browser. */
@@ -36,6 +39,8 @@ export class OfflineGame {
   /** Called with the recording id once a recorded match is fully on disk. */
   onRecordingSaved: ((id: string) => void) | null = null;
   onRecordingError: ((msg: string) => void) | null = null;
+  /** Wins-only recording: called once the video is saved (or dropped because the player lost). */
+  onWinRecording: ((r: SaveResult, name: string) => void) | null = null;
   private rec: SpectatorRecorder | null = null;
   private endedFired = false;
   readonly names: string[];
@@ -49,8 +54,8 @@ export class OfflineGame {
     this.names = [opts.name, botName];
     this.bot = createBot(opts.difficulty, this.sim, 1, 7);
     this.view = new GameView(canvas, uiRoot, { names: this.names, teams: [0, 1], localIndex: 0, replay: true });
-    if (opts.record) {
-      this.rec = new SpectatorRecorder(this.view.world, { difficulty: opts.difficulty, matchLength: opts.matchLength, names: this.names, teams: [0, 1], botIndex: 1 });
+    if (opts.record || opts.winSink) {
+      this.rec = new SpectatorRecorder(this.view.world, { difficulty: opts.difficulty, matchLength: opts.matchLength, names: this.names, teams: [0, 1], botIndex: 1, sink: opts.winSink });
       this.rec.setBot(this.bot.debug);
       this.view.recorder = this.rec;
     }
@@ -118,7 +123,10 @@ export class OfflineGame {
     if (!rec) return;
     this.rec = null;
     this.view.recorder = null;
-    void rec.stop(this.snap).then((id) => { if (!rec.hasFailed) this.onRecordingSaved?.(id); });
+    void rec.stop(this.snap).then((id) => {
+      if (rec.saved) this.onWinRecording?.(rec.saved.result, rec.saved.name);
+      else if (!rec.hasFailed) this.onRecordingSaved?.(id);
+    });
   }
 
   private savePrev(): void {
