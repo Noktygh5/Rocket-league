@@ -21,7 +21,7 @@ import { BallPath, predictBall } from './predict';
  */
 
 /** Bumped with every behaviour change; the match recorder writes it into meta.json so a recording says which boss played it. */
-export const BOSS_VERSION = 'r14 carry contest, goal-zone pads, boost reserve below 25, shot-contact times';
+export const BOSS_VERSION = 'r15 carry contest, goal-zone pads, boost reserve below 25, shot-contact times, no deep chase';
 
 const DT = PHYSICS.dt;
 const L = ARENA.halfLength;
@@ -35,6 +35,7 @@ const BUDGET = 3; // rollouts per tick
 const STRIKE_MIN = -600; // a play scoring below this is not worth leaving position for
 const TIME_COST = 140; // score lost per second until the touch: earlier touches win possession
 const AERIAL_BONUS = 260; // a viable aerial is preferred to waiting for the ball to drop (earlier, harder to defend)
+const DEEP_HOLD = 3500; // do not chase a ball the opponent is holding when it is this deep in the opponent's end
 const PAD_BOOST = 70; // detour for a pad on the way to a play below this boost
 const PAD_PLAN = 80; // with nothing to strike, go for a pad below this boost
 const PAD_SLACK = 2.0; // ... when there are at least this many seconds before the touch
@@ -768,6 +769,13 @@ export class BossBot {
     // keep a reserve: below 25 boost an ordinary play runs on what the car has, so there is boost left for the run back when the ball is lost
     // (recorded games: the boss burned its last boost in a deep attack, lost the ball and could not catch the carrier at 1,400 uu/s)
     if (chosen && chosen.kind === K.Strike && !chosen.rush && !this.threat && !this.kickoff && car.boost < 25) chosen.boost = false;
+    // do not chase a ball the opponent is holding deep in its own end (recorded games: the boss was stuck in that corner when the human broke away)
+    if (chosen && chosen.kind === K.Strike && !this.threat && !this.kickoff && this.sim.ball.pos.y * att > DEEP_HOLD) {
+      const opp0 = this.nearestOpponent(car);
+      const ball0 = this.sim.ball;
+      if (opp0 && Math.hypot(ball0.pos.x - opp0.pos.x, ball0.pos.y - opp0.pos.y) < 700
+        && Math.hypot(ball0.pos.x - opp0.pos.x, ball0.pos.y - opp0.pos.y) < Math.hypot(ball0.pos.x - car.pos.x, ball0.pos.y - car.pos.y) + 600) chosen = null;
+    }
     const ownEndEarly = this.holdGoal(car);
     const carrying = this.isCarry(car);
     // a long run-up to the ball with low boost: take a pad on the way if it costs almost nothing (not while they carry the ball)
